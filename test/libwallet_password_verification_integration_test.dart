@@ -58,6 +58,7 @@ void main() {
     expect(verified.valid, isTrue);
     expect(verified.checked, 'unsealed');
     expect(verified.kdf, 'argon2id');
+    expect(verified.needsKdfUpgrade, isFalse);
     expect(
       (await client.walletKeys.verify(
         passwordKey.id,
@@ -66,6 +67,47 @@ void main() {
       isFalse,
     );
     expect((await client.wallets.get(wallet.id)).gen, wallet.gen);
+  });
+
+  test('recovery lists a phrase\'s addresses offline and wipes it', () async {
+    final dataDir = await Directory.systemTemp.createTemp('tibane-recovery-');
+    final client = LibwalletClient.initialize(
+      dataDir.path,
+      library: _openNativeLibrary(),
+    );
+    await client.ready;
+    final session = await client.recovery.open(
+      RecoverySource.mnemonic(
+        'abandon abandon abandon abandon abandon abandon '
+        'abandon abandon abandon abandon abandon about',
+      ),
+    );
+    final rows = await session.addresses(count: 1);
+    final chains = rows.map((r) => r.chain).toSet();
+    // Every chain the recovery screen maps to an account type.
+    expect(
+      chains,
+      containsAll([
+        'bitcoin',
+        'litecoin',
+        'dogecoin',
+        'bitcoin-cash',
+        'monacoin',
+        'ethereum',
+        'solana',
+        'tron',
+      ]),
+    );
+    final eth = rows.firstWhere(
+      (r) => r.chain == 'ethereum' && r.path == "m/44'/60'/0'/0/0",
+    );
+    expect(
+      eth.address.toLowerCase(),
+      '0x9858effd232b4033e47d90003d41ec34ecaeda94',
+    );
+    expect(session.layouts.any((l) => !l.standard), isTrue);
+    await session.close();
+    await expectLater(session.addresses(count: 1), throwsA(anything));
   });
 
   test(

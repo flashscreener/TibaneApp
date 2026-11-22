@@ -131,6 +131,8 @@ class _Transport implements Transport {
         'Id': keyId,
         'Valid': key['Key'] == 'correct-password',
         'Checked': 'unsealed',
+        'Kdf': 'argon2id',
+        'KdfUpgrade': false,
       };
     }
     throw StateError('Unexpected request $verb $path');
@@ -143,12 +145,9 @@ class _Transport implements Transport {
 class _Client implements LibwalletClient {
   _Client(Transport transport)
     : wallets = WalletApi(transport),
-      storeKeys = StoreKeyApi(transport),
       walletKeys = WalletKeyApi(transport);
   @override
   final WalletApi wallets;
-  @override
-  final StoreKeyApi storeKeys;
   @override
   final WalletKeyApi walletKeys;
   @override
