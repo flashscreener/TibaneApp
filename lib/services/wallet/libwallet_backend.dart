@@ -4427,10 +4427,8 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
     return map;
   }
 
-  /// Verify [password] against the public key stored for the wallet's Password
-  /// share. `StoreKey:derivePassword` is a deterministic derivation API, not an
-  /// authentication API: it succeeds for every input. Treating success as a
-  /// match would let any password through export, restore and transfer gates.
+  /// Open the Password share without changing it. LibWallet selects the KDF
+  /// recorded on the share, including legacy backups; no automatic re-sealing.
   Future<void> _verifyWalletPassword(
     LibwalletClient client, {
     required Wallet wallet,
@@ -4447,16 +4445,20 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
       throw StateError('Wallet has no Password share');
     }
 
-    String derivedPublicKey;
+    WalletKeyCheck check;
     try {
-      derivedPublicKey = await client.storeKeys.derivePassword(
-        password: password,
-        walletKeyId: passwordKey.id,
+      check = await client.walletKeys.verify(
+        passwordKey.id,
+        key: KeyDescription.password(password),
       );
-    } catch (_) {
-      throw StateError('Wrong password');
+    } on LibwalletException catch (error) {
+      if (error.code == '400' &&
+          error.message.contains('password is too short')) {
+        throw StateError('Wrong password');
+      }
+      rethrow;
     }
-    if (!passwordPublicKeyMatches(passwordKey.key, derivedPublicKey)) {
+    if (!check.valid) {
       throw StateError('Wrong password');
     }
   }

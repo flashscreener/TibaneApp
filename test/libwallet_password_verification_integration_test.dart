@@ -1,6 +1,7 @@
 @TestOn('mac-os')
 library;
 
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -17,6 +18,11 @@ void main() {
       library: _openNativeLibrary(),
     );
     await client.ready;
+    addTearDown(() async {
+      client.dispose();
+      await dataDir.delete(recursive: true);
+    });
+    expect(await client.info.version(), '0.5.13');
 
     Wallet? wallet;
     await for (final event in client.wallets.create(
@@ -45,7 +51,75 @@ void main() {
     expect(correct, isNotEmpty);
     expect(correct, passwordKey.key);
     expect(incorrect, isNot(correct));
+    final verified = await client.walletKeys.verify(
+      passwordKey.id,
+      key: KeyDescription.password('correct-password'),
+    );
+    expect(verified.valid, isTrue);
+    expect(verified.checked, 'unsealed');
+    expect(verified.kdf, 'argon2id');
+    expect(
+      (await client.walletKeys.verify(
+        passwordKey.id,
+        key: KeyDescription.password('incorrect-password'),
+      )).valid,
+      isFalse,
+    );
+    expect((await client.wallets.get(wallet.id)).gen, wallet.gen);
   });
+
+  test(
+    'legacy Password shares still open with six-character passwords',
+    () async {
+      final fixture =
+          jsonDecode(
+                await File(
+                  'test/fixtures/libwallet_legacy_password.json',
+                ).readAsString(),
+              )
+              as Map<String, dynamic>;
+      final dataDir = await Directory.systemTemp.createTemp(
+        'tibane-legacy-password-',
+      );
+      final client = LibwalletClient.initialize(
+        dataDir.path,
+        library: _openNativeLibrary(),
+      );
+      addTearDown(() async {
+        client.dispose();
+        await dataDir.delete(recursive: true);
+      });
+      await client.ready;
+      await client.wallets.restore(
+        (fixture['files'] as List)
+            .map((entry) => Map<String, String>.from(entry as Map))
+            .toList(),
+      );
+      final walletId = fixture['walletId'] as String;
+      final keyId = fixture['passwordKeyId'] as String;
+      final password = fixture['password'] as String;
+      final before = await client.wallets.get(walletId);
+      final verified = await client.walletKeys.verify(
+        keyId,
+        key: KeyDescription.password(password),
+      );
+      expect(password.length, 6);
+      expect(verified.valid, isTrue);
+      expect(verified.kdf, 'pbkdf2');
+      expect(verified.needsKdfUpgrade, isTrue);
+      expect(
+        (await client.walletKeys.verify(
+          keyId,
+          key: KeyDescription.password('wrong1'),
+        )).valid,
+        isFalse,
+      );
+      final after = await client.wallets.get(walletId);
+      expect(after.pubkey, before.pubkey);
+      expect(after.gen, before.gen);
+      expect(after.keys.map((key) => key.id), before.keys.map((key) => key.id));
+    },
+  );
 }
 
 DynamicLibrary _openNativeLibrary() {

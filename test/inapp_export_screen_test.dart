@@ -123,14 +123,14 @@ class _Transport implements Transport {
         };
       }
     }
-    if (path == 'StoreKey:derivePassword') {
-      final keyId = params!['WalletKeyId'] as String;
+    if (path.startsWith('Wallet/Key/') && path.endsWith(':verify')) {
+      final keyId = path.substring('Wallet/Key/'.length, path.length - 7);
       verified.add(keyId);
-      final id = keyId.substring('password-'.length);
+      final key = params!['Key'] as Map<String, dynamic>;
       return {
-        'Public_Key': params['Password'] == 'correct-password'
-            ? 'password-public-$id'
-            : 'incorrect-public',
+        'Id': keyId,
+        'Valid': key['Key'] == 'correct-password',
+        'Checked': 'unsealed',
       };
     }
     throw StateError('Unexpected request $verb $path');
@@ -143,11 +143,14 @@ class _Transport implements Transport {
 class _Client implements LibwalletClient {
   _Client(Transport transport)
     : wallets = WalletApi(transport),
-      storeKeys = StoreKeyApi(transport);
+      storeKeys = StoreKeyApi(transport),
+      walletKeys = WalletKeyApi(transport);
   @override
   final WalletApi wallets;
   @override
   final StoreKeyApi storeKeys;
+  @override
+  final WalletKeyApi walletKeys;
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
