@@ -363,22 +363,8 @@ class _InAppImportPrivateKeyScreenState
             for (final chain in PrivateKeyImportChain.values)
               ButtonSegment(
                 value: chain,
-                label: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 22,
-                      child: chain == _selectedChain
-                          ? const Icon(Icons.check, size: 18)
-                          : null,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      chain == PrivateKeyImportChain.solana
-                          ? 'Solana'
-                          : 'Ethereum',
-                    ),
-                  ],
+                label: Text(
+                  chain == PrivateKeyImportChain.solana ? 'Solana' : 'Ethereum',
                 ),
               ),
           ],

@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:libwallet/libwallet.dart';
+import 'package:provider/provider.dart';
 import 'package:tibaneapp/l10n/gen/app_localizations.dart';
 import 'package:tibaneapp/screens/wallet/widgets/sign_sheet.dart';
+import 'package:tibaneapp/screens/wallet/inapp_unlock_screen.dart';
+import 'package:tibaneapp/services/wallet/libwallet_backend.dart';
+import 'package:tibaneapp/services/wallet_service.dart';
 import 'package:tibaneapp/theme/tibane_theme.dart';
 import 'package:tibaneapp/widgets/gradient_button.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +48,27 @@ class _Harness {
   int deviceReads = 0;
 }
 
+class _RecoveryBackend extends LibwalletBackend {
+  String? recoveredWallet;
+
+  @override
+  String get walletId => 'selected-fixture-wallet';
+
+  @override
+  Future<bool> walletCanSignWithoutDeviceShare(String id) async {
+    recoveredWallet = id;
+    return false;
+  }
+}
+
+class _RecoveryService extends WalletService {
+  _RecoveryService(this.backend);
+  final _RecoveryBackend backend;
+
+  @override
+  LibwalletBackend get libwallet => backend;
+}
+
 Future<(_Harness, AppLocalizations)> _open(
   WidgetTester tester, {
   String language = 'en',
@@ -55,6 +80,7 @@ Future<(_Harness, AppLocalizations)> _open(
   bool confirmationStyle = false,
   Future<String?> Function()? deviceRead,
   NormalWalletBiometrics? normalBiometrics,
+  WalletService? service,
 }) async {
   tester.view.physicalSize = size * 2;
   tester.view.devicePixelRatio = 2;
@@ -73,7 +99,12 @@ Future<(_Harness, AppLocalizations)> _open(
         data: MediaQuery.of(
           context,
         ).copyWith(textScaler: TextScaler.linear(scale)),
-        child: child!,
+        child: service == null
+            ? child!
+            : ChangeNotifierProvider<WalletService>.value(
+                value: service,
+                child: child!,
+              ),
       ),
       home: Scaffold(
         body: Builder(
@@ -465,7 +496,7 @@ void main() {
   testWidgets(
     'MPC keeps its share sheet and uses the same styled password dialog',
     (tester) async {
-      final (harness, l10n) = await _open(
+      final (harness, _) = await _open(
         tester,
         wallet: _wallet(
           protocol: 'frost',
@@ -475,8 +506,10 @@ void main() {
       );
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.byType(BottomSheet), findsOneWidget);
-      expect(find.byType(ListTile), findsNWidgets(3));
-      await tester.tap(find.text(l10n.signSheetKeyTitle('1', 'Password')));
+      expect(find.byType(ListTile), findsNWidgets(2));
+      await tester.tap(
+        find.byKey(const ValueKey('sign-share-selected-Password-0')),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(Image), findsNothing);
       await _enterAndConfirm(tester, 'fixture-password');
@@ -485,7 +518,9 @@ void main() {
         tester.widget<GradientButton>(find.byType(GradientButton)).onPressed,
         isNull,
       );
-      await tester.tap(find.text(l10n.signSheetKeyTitle('2', 'StoreKey')));
+      await tester.tap(
+        find.byKey(const ValueKey('sign-share-selected-StoreKey-1')),
+      );
       await tester.pumpAndSettle();
       expect(harness.deviceReads, 1);
       await tester.tap(find.text('Confirm fixture'));
@@ -497,7 +532,7 @@ void main() {
   testWidgets('two password MPC shares are not mistaken for an ordinary seed', (
     tester,
   ) async {
-    final (harness, l10n) = await _open(
+    final (harness, _) = await _open(
       tester,
       wallet: _wallet(
         protocol: 'dkls23',
@@ -506,10 +541,14 @@ void main() {
       ),
     );
     expect(find.byType(BottomSheet), findsOneWidget);
-    await tester.tap(find.text(l10n.signSheetKeyTitle('1', 'Password')));
+    await tester.tap(
+      find.byKey(const ValueKey('sign-share-selected-Password-0')),
+    );
     await tester.pumpAndSettle();
     await _enterAndConfirm(tester, 'fixture-password');
-    await tester.tap(find.text(l10n.signSheetKeyTitle('2', 'Password')));
+    await tester.tap(
+      find.byKey(const ValueKey('sign-share-selected-Password-1')),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
     await tester.tap(find.text('Confirm fixture'));
@@ -519,5 +558,212 @@ void main() {
       'selected-Password-0',
       'selected-Password-1',
     });
+  });
+
+  for (final language in ['en', 'pt', 'fr', 'ja']) {
+    for (final size in [const Size(320, 568), const Size(414, 896)]) {
+      testWidgets('friendly MPC authorization fits $language at $size', (
+        tester,
+      ) async {
+        final (harness, l10n) = await _open(
+          tester,
+          language: language,
+          size: size,
+          scale: 1.3,
+          wallet: _wallet(
+            protocol: 'frost',
+            threshold: 1,
+            types: ['StoreKey', 'RemoteKey', 'Password'],
+          ),
+        );
+        final rows = tester
+            .widgetList<ListTile>(find.byType(ListTile))
+            .toList();
+        expect(rows.map((row) => row.key), [
+          const ValueKey('sign-share-selected-StoreKey-0'),
+          const ValueKey('sign-share-selected-Password-2'),
+        ]);
+        expect(rows.first.onTap, isNotNull);
+        expect(rows[1].onTap, isNotNull);
+        expect(find.text(l10n.signSheetRecoveryTitle), findsNothing);
+        expect(find.text(l10n.signSheetKeyRemote), findsNothing);
+        expect(find.text(l10n.signSheetDeviceTitle), findsOneWidget);
+        expect(find.text(l10n.signSheetKeyDevice), findsOneWidget);
+        expect(find.text('StoreKey'), findsNothing);
+        expect(find.text('RemoteKey'), findsNothing);
+        expect(find.byIcon(Icons.lock), findsNothing);
+        expect(find.byIcon(Icons.lock_open), findsNothing);
+        expect(find.byIcon(Icons.lock_outline), findsNothing);
+        expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
+        expect(find.byIcon(Icons.check_circle), findsNothing);
+        await tester.ensureVisible(find.text('Confirm fixture'));
+        expect(find.text('Confirm fixture').hitTestable(), findsOneWidget);
+        expect(
+          tester.widget<GradientButton>(find.byType(GradientButton)).onPressed,
+          isNull,
+        );
+        expect(harness.deviceReads, 0);
+        expect(harness.completed, isFalse);
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.text(l10n.actionCancel));
+        await tester.tap(find.text(l10n.actionCancel));
+        await tester.pumpAndSettle();
+        expect(harness.completed, isTrue);
+        expect(harness.result, isNull);
+      });
+    }
+  }
+
+  testWidgets('MPC checkboxes require device and password without recovery', (
+    tester,
+  ) async {
+    final (harness, l10n) = await _open(
+      tester,
+      wallet: _wallet(
+        protocol: 'frost',
+        threshold: 1,
+        types: ['StoreKey', 'RemoteKey', 'Password'],
+      ),
+    );
+    expect(find.text(l10n.signSheetKeysUnlocked('0', '2')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sign-share-selected-RemoteKey-1')),
+      findsNothing,
+    );
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
+    expect(harness.deviceReads, 0);
+    expect(find.byType(AlertDialog), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('sign-share-selected-StoreKey-0')),
+    );
+    await tester.pumpAndSettle();
+    expect(harness.deviceReads, 1);
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.check_circle)).color,
+      TibaneColors.orange,
+    );
+    expect(find.text(l10n.signSheetKeysUnlocked('1', '2')), findsOneWidget);
+    expect(
+      tester.widget<GradientButton>(find.byType(GradientButton)).onPressed,
+      isNull,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('sign-share-selected-Password-2')),
+    );
+    await tester.pumpAndSettle();
+    await _enterAndConfirm(tester, 'fixture-password');
+    expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNothing);
+    expect(find.text(l10n.signSheetKeysUnlocked('2', '2')), findsOneWidget);
+    await tester.tap(find.text('Confirm fixture'));
+    await tester.pumpAndSettle();
+    expect(harness.result!.map((key) => key.id), [
+      'selected-StoreKey-0',
+      'selected-Password-2',
+    ]);
+  });
+
+  for (final language in ['en', 'pt', 'fr', 'ja']) {
+    testWidgets('missing device key links to its recovery in $language', (
+      tester,
+    ) async {
+      final backend = _RecoveryBackend();
+      final service = _RecoveryService(backend);
+      addTearDown(service.dispose);
+      addTearDown(backend.dispose);
+      final (harness, l10n) = await _open(
+        tester,
+        language: language,
+        wallet: _wallet(
+          protocol: 'frost',
+          threshold: 1,
+          types: ['StoreKey', 'RemoteKey', 'Password'],
+        ),
+        deviceRead: () async => null,
+        service: service,
+      );
+      final recover = find.byKey(const Key('sign-recover-device'));
+      expect(recover, findsNothing);
+      await tester.tap(
+        find.byKey(const ValueKey('sign-share-selected-StoreKey-0')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.signSheetDeviceKeyError), findsOneWidget);
+      expect(recover, findsOneWidget);
+      await tester.ensureVisible(recover);
+      await tester.tap(recover);
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      for (var step = 0; step < 2; step++) {
+        await tester.tap(find.byKey(const Key('mpc-key-operation-next')));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text(l10n.mpcActivationBackupWarningTitle), findsOneWidget);
+      expect(find.byType(InAppUnlockScreen), findsNothing);
+      expect(backend.recoveredWallet, isNull);
+      await tester.ensureVisible(find.text(l10n.actionConfirm));
+      await tester.tap(find.text(l10n.actionConfirm));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<InAppUnlockScreen>(find.byType(InAppUnlockScreen))
+            .walletId,
+        'selected-fixture-wallet',
+      );
+      expect(backend.recoveredWallet, 'selected-fixture-wallet');
+      expect(
+        tester
+            .widget<InAppUnlockScreen>(find.byType(InAppUnlockScreen))
+            .startActivation,
+        isTrue,
+      );
+      expect(find.text(l10n.inappUnlockSetupTitle), findsOneWidget);
+      expect(harness.result, isNull);
+      Navigator.of(tester.element(find.byType(InAppUnlockScreen))).pop();
+      await tester.pumpAndSettle();
+      expect(harness.completed, isTrue);
+      expect(harness.result, isNull);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('cancelling the device-error warning never starts recovery', (
+    tester,
+  ) async {
+    final backend = _RecoveryBackend();
+    final service = _RecoveryService(backend);
+    addTearDown(service.dispose);
+    addTearDown(backend.dispose);
+    final (harness, l10n) = await _open(
+      tester,
+      wallet: _wallet(
+        protocol: 'frost',
+        threshold: 1,
+        types: ['StoreKey', 'RemoteKey', 'Password'],
+      ),
+      deviceRead: () async => null,
+      service: service,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('sign-share-selected-StoreKey-0')),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('sign-recover-device')));
+    await tester.tap(find.byKey(const Key('sign-recover-device')));
+    await tester.pumpAndSettle();
+    for (var step = 0; step < 2; step++) {
+      await tester.tap(find.byKey(const Key('mpc-key-operation-next')));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text(l10n.mpcActivationBackupWarningTitle), findsOneWidget);
+    await tester.ensureVisible(find.text(l10n.actionCancel));
+    await tester.tap(find.text(l10n.actionCancel));
+    await tester.pumpAndSettle();
+    expect(backend.recoveredWallet, isNull);
+    expect(find.byType(InAppUnlockScreen), findsNothing);
+    expect(harness.completed, isTrue);
+    expect(harness.result, isNull);
   });
 }

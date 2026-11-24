@@ -11,13 +11,33 @@ import 'package:tibaneapp/screens/fee_sharing_screen.dart';
 import 'package:tibaneapp/screens/staking/staking_detail_screen.dart';
 import 'package:tibaneapp/screens/token_detail_screen.dart';
 import 'package:tibaneapp/services/chiefstaker_api.dart';
+import 'package:tibaneapp/services/jupiter_service.dart';
 import 'package:tibaneapp/services/rpc_service.dart';
 import 'package:tibaneapp/services/uk_compliance_service.dart';
+import 'package:tibaneapp/services/wallet/libwallet_backend.dart';
 import 'package:tibaneapp/services/wallet_service.dart';
 import 'package:tibaneapp/theme/tibane_theme.dart';
 import 'package:tibaneapp/widgets/gradient_button.dart';
 import 'package:tibaneapp/widgets/tibane_card.dart';
 import 'package:tibaneapp/widgets/token_icon.dart';
+import 'package:tibaneapp/widgets/token_picker_tile.dart';
+
+class _VerifiedBackend extends LibwalletBackend {
+  @override
+  Future<Set<String>> verifiedCuratedTokenAddresses({String? network}) async =>
+      network == 'solana.mainnet' ? {chiefPussyMint} : {};
+}
+
+class _Wallet extends WalletService {
+  @override
+  final libwallet = _VerifiedBackend();
+
+  @override
+  void dispose() {
+    libwallet.dispose();
+    super.dispose();
+  }
+}
 
 class _Rpc extends RpcService {
   _Rpc() : super.real();
@@ -76,7 +96,7 @@ void main() {
         RpcService.testInstance = null;
         ChiefStakerApi.testInstance = null;
       });
-      final wallet = WalletService();
+      final wallet = _Wallet();
       final compliance = UkComplianceService();
       addTearDown(wallet.dispose);
       addTearDown(compliance.dispose);
@@ -93,7 +113,18 @@ void main() {
             theme: TibaneTheme.darkTheme,
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: const TokenDetailScreen(mint: chiefPussyMint),
+            home: TokenDetailScreen(
+              mint: chiefPussyMint,
+              initialHolding: TokenHolding(
+                mint: chiefPussyMint,
+                symbol: 'ChiefPussy',
+                name: 'Tibanne Thecat',
+                balance: BigInt.from(12320000000000),
+                decimals: 6,
+                uiBalance: 12320000,
+                priceChange24h: -2.5,
+              ),
+            ),
           ),
         ),
       );
@@ -131,14 +162,15 @@ void main() {
       expect(find.text('969.9M'), findsNothing);
       expect(tester.getTopLeft(cap).dx, lessThan(tester.getTopLeft(price).dx));
       expect(tester.getTopLeft(cap).dy, tester.getTopLeft(price).dy);
-      for (final title in [
-        'MARKET CAP',
-        'PRICE',
-        'Staking Pool',
-        'TOP HOLDERS',
-      ]) {
-        expect(tester.widget<Text>(find.text(title)).style!.fontSize, 13.75);
+      for (final title in ['BALANCE', 'MARKET CAP', 'PRICE', 'Staking Pool']) {
+        final style = tester.widget<Text>(find.text(title)).style!;
+        expect(style.fontSize, 15);
+        expect(style.fontWeight, FontWeight.w600);
       }
+      expect(
+        tester.widget<Text>(find.text('TOP HOLDERS')).style!.fontSize,
+        13.75,
+      );
       expect(find.byIcon(Icons.account_balance), findsNothing);
       expect(tester.widget<Text>(find.text('#5')).style!.fontSize, 13.2);
       expect(tester.widget<Text>(find.text('holder-0')).style!.fontSize, 14.4);
@@ -150,6 +182,26 @@ void main() {
         TibaneColors.text,
       );
       final capCard = find.widgetWithText(TibaneCard, r'$157.8K');
+      final balanceCard = find.widgetWithText(TibaneCard, 'BALANCE');
+      expect(
+        tester.getSize(balanceCard).height,
+        tester.getSize(capCard).height,
+      );
+      expect(
+        tester.getSize(balanceCard).width,
+        greaterThan(tester.getSize(capCard).width),
+      );
+      final quantity = find.text('12.32M');
+      final fiat = find.text(r'$2.00k');
+      expect(
+        tester.getTopLeft(quantity).dx,
+        lessThan(tester.getTopLeft(fiat).dx),
+      );
+      expect(
+        tester.widget<Text>(find.text('-2.50%')).style?.color,
+        TibaneColors.error,
+      );
+      expect(find.byType(VerifiedTokenBadge), findsOneWidget);
       for (final value in [r'$157.8K', r'$0.00016272']) {
         final card = find.widgetWithText(TibaneCard, value);
         expect(card, findsOneWidget);

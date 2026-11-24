@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../services/wallet/logical_wallet.dart';
+import '../../services/wallet/unified_account.dart';
 import '../../theme/tibane_theme.dart';
 import 'inapp_backup_restore_screen.dart';
 import 'inapp_import_mnemonic_screen.dart';
@@ -15,7 +17,10 @@ import 'widgets/wallet_setup_method_card.dart';
 /// Bubbles `true` up to the caller (the wallet list) when either flow reports
 /// success, so the list can refresh.
 class InAppImportScreen extends StatelessWidget {
-  const InAppImportScreen({super.key});
+  const InAppImportScreen({super.key, this.groups = const [], this.target});
+
+  final List<LogicalWallet> groups;
+  final UnifiedAccount? target;
 
   Future<void> _open(BuildContext context, Widget screen) async {
     final done = await Navigator.of(
@@ -49,7 +54,10 @@ class InAppImportScreen extends StatelessWidget {
               icon: Icons.key_outlined,
               title: l10n.inappCreateImportPrivateKeyLink,
               subtitle: l10n.walletSetupPrivateKeySubtitle,
-              onTap: () => _open(context, const InAppImportPrivateKeyScreen()),
+              onTap: () => _open(
+                context,
+                InAppImportPrivateKeyScreen(groups: groups, target: target),
+              ),
             ),
             const SizedBox(height: 12),
             WalletSetupMethodCard(

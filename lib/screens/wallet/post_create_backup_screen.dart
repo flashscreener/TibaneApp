@@ -34,94 +34,151 @@ class PostCreateBackupScreen extends StatelessWidget {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) onDone();
       },
-      child: Scaffold(
-        backgroundColor: _backupScreenBackground,
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final compactHeight = constraints.maxHeight < 720;
-              final horizontalPadding = constraints.maxWidth < 360
-                  ? 24.0
-                  : 32.0;
-              final padding = EdgeInsets.fromLTRB(
-                horizontalPadding,
-                compactHeight ? 14 : 24,
-                horizontalPadding,
-                compactHeight ? 18 : 28,
-              );
-              final contentWidth = math.max(
-                0.0,
-                constraints.maxWidth - padding.horizontal,
-              );
-              return SingleChildScrollView(
-                padding: padding,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: (constraints.maxHeight - padding.vertical).clamp(
-                      0.0,
-                      double.infinity,
-                    ),
+      child: _BackupNoticeScreen(
+        title: l10n.postCreateBackupTitle,
+        body: l10n.postCreateBackupBody,
+        primaryLabel: l10n.postCreateBackupButton,
+        secondaryLabel: l10n.postCreateBackupSkip,
+        onPrimary: () => _openManualBackup(context),
+        onSecondary: onDone,
+      ),
+    );
+  }
+}
+
+class MpcActivationWarningScreen extends StatelessWidget {
+  const MpcActivationWarningScreen({super.key, this.body});
+
+  final String? body;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return _BackupNoticeScreen(
+      title: l10n.mpcActivationBackupWarningTitle,
+      body: body ?? l10n.mpcActivationBackupWarningBody,
+      primaryLabel: l10n.actionConfirm,
+      secondaryLabel: l10n.actionCancel,
+      onPrimary: () => Navigator.of(context).pop(true),
+      onSecondary: () => Navigator.of(context).pop(false),
+      filledSecondary: true,
+    );
+  }
+}
+
+class _BackupNoticeScreen extends StatelessWidget {
+  const _BackupNoticeScreen({
+    required this.title,
+    required this.body,
+    required this.primaryLabel,
+    required this.secondaryLabel,
+    required this.onPrimary,
+    required this.onSecondary,
+    this.filledSecondary = false,
+  });
+
+  final String title;
+  final String body;
+  final String primaryLabel;
+  final String secondaryLabel;
+  final VoidCallback onPrimary;
+  final VoidCallback onSecondary;
+  final bool filledSecondary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _backupScreenBackground,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compactHeight = constraints.maxHeight < 720;
+            final horizontalPadding = constraints.maxWidth < 360 ? 24.0 : 32.0;
+            final padding = EdgeInsets.fromLTRB(
+              horizontalPadding,
+              compactHeight ? 14 : 24,
+              horizontalPadding,
+              compactHeight ? 18 : 28,
+            );
+            final contentWidth = math.max(
+              0.0,
+              constraints.maxWidth - padding.horizontal,
+            );
+            return SingleChildScrollView(
+              padding: padding,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: (constraints.maxHeight - padding.vertical).clamp(
+                    0.0,
+                    double.infinity,
                   ),
-                  child: IntrinsicHeight(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(height: compactHeight ? 4 : 12),
-                        _BackupIllustrationSlot(
-                          maxWidth: contentWidth,
-                          compactHeight: compactHeight,
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(height: compactHeight ? 4 : 12),
+                      _BackupIllustrationSlot(
+                        maxWidth: contentWidth,
+                        compactHeight: compactHeight,
+                      ),
+                      SizedBox(height: compactHeight ? 22 : 30),
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(
+                              color: TibaneColors.text,
+                              fontSize: compactHeight ? 32 : 36,
+                              height: 1.08,
+                              letterSpacing: 0,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      SizedBox(height: compactHeight ? 20 : 28),
+                      Text(
+                        body,
+                        style: TextStyle(
+                          color: TibaneColors.textMuted,
+                          fontSize: compactHeight ? 17.5 : 19,
+                          height: compactHeight ? 1.55 : 1.68,
+                          letterSpacing: 0,
                         ),
-                        SizedBox(height: compactHeight ? 22 : 30),
-                        Text(
-                          l10n.postCreateBackupTitle,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(
-                                color: TibaneColors.text,
-                                fontSize: compactHeight ? 32 : 36,
-                                height: 1.08,
-                                letterSpacing: 0,
-                                fontWeight: FontWeight.w800,
-                              ),
-                        ),
-                        SizedBox(height: compactHeight ? 20 : 28),
-                        Text(
-                          l10n.postCreateBackupBody,
-                          style: TextStyle(
+                      ),
+                      const Spacer(),
+                      SizedBox(height: compactHeight ? 24 : 36),
+                      GradientButton(
+                        label: primaryLabel,
+                        expanded: true,
+                        onPressed: onPrimary,
+                      ),
+                      SizedBox(height: compactHeight ? 12 : 20),
+                      TextButton(
+                        onPressed: onSecondary,
+                        style: filledSecondary
+                            ? TextButton.styleFrom(
+                                backgroundColor: TibaneColors.surface,
+                                minimumSize: const Size.fromHeight(48),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              )
+                            : null,
+                        child: Text(
+                          secondaryLabel,
+                          style: const TextStyle(
                             color: TibaneColors.textMuted,
-                            fontSize: compactHeight ? 17.5 : 19,
-                            height: compactHeight ? 1.55 : 1.68,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 0,
                           ),
                         ),
-                        const Spacer(),
-                        SizedBox(height: compactHeight ? 24 : 36),
-                        GradientButton(
-                          label: l10n.postCreateBackupButton,
-                          expanded: true,
-                          onPressed: () {
-                            _openManualBackup(context);
-                          },
-                        ),
-                        SizedBox(height: compactHeight ? 12 : 20),
-                        TextButton(
-                          onPressed: onDone,
-                          child: Text(
-                            l10n.postCreateBackupSkip,
-                            style: const TextStyle(
-                              color: TibaneColors.textMuted,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

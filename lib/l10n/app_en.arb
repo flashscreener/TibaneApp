@@ -606,7 +606,7 @@
   "inappUnlockFlowRepairDescSend": "This fixes verification using your backup; it does not activate sending yet. We'll send a code to your registered email or phone. No password is needed for this step.",
   "inappUnlockFlowRepairDescCode": "Enter the code we sent to fix verification. Afterwards, activate this device with your password and a new code.",
   "inappUnlockFlowSetupDescSend": "Enter your wallet password. We'll send a code to your registered email or phone to enable sends and swaps on this device.",
-  "inappUnlockFlowSetupDescCode": "Enter the code sent to your registered email or phone to finish activation. This may take a few moments.",
+  "inappUnlockFlowSetupDescCode": "Enter the code sent to your registered email or phone to finish activation.",
   "inappUnlockSingleDeviceWarning": "Activation replaces the signing keys. The previous device will need activation again. Your address and funds stay the same. Afterwards, save a fresh backup and replace the old one.",
   "inappUnlockPasswordLabel": "Wallet password",
   "inappUnlockResendCode": "Resend code",
@@ -1426,7 +1426,9 @@
   "accountSwitcherAccountName": "Account name",
   "accountSwitcherChain": "Chain",
   "accountAddImportAnotherTitle": "Import Another Account",
+  "accountAddCreateWalletSubtitle": "Set up a new wallet with a recovery phrase or MPC protection.",
   "accountAddCreateTitle": "Create New Account",
+  "accountAddCreateSubtitle": "Create a new Solana or Ethereum account in one of your Tibane wallets.",
   "accountAddImportTitle": "Import account",
   "privateKeyTitle": "Import account",
   "privateKeyNetworkLabel": "Network",
@@ -1479,9 +1481,9 @@
   "authSignSetUp": "Set up",
   "authSignTitle": "Authorize transaction",
   "authSignPurpose": "sign this transaction",
-  "signSheetDeviceKeyError": "Could not read your device key on this device. Recover it via 2FA in wallet settings, or enter your password first.",
+  "signSheetDeviceKeyError": "Could not read your device key on this device. Recover it via 2FA in wallet settings.",
   "signSheetPasswordTitle": "Wallet password",
-  "signSheetUnlockHint": "Unlock {count} of your wallet keys to {purpose}.",
+  "signSheetUnlockHint": "Complete {count} confirmations to {purpose}.",
   "@signSheetUnlockHint": {
     "placeholders": {
       "count": {
@@ -1492,7 +1494,7 @@
       }
     }
   },
-  "signSheetKeysUnlocked": "{unlocked} / {required} keys unlocked",
+  "signSheetKeysUnlocked": "{unlocked} / {required} confirmations completed",
   "@signSheetKeysUnlocked": {
     "placeholders": {
       "unlocked": {
@@ -1503,8 +1505,8 @@
       }
     }
   },
-  "signSheetKeyRemote": "Recovery only (2FA)",
-  "signSheetKeyDevice": "This device",
+  "signSheetKeyRemote": "Only for recovering access to your wallet. Not needed here.",
+  "signSheetKeyDevice": "Uses the key saved securely on this device.",
   "signSheetKeyTitle": "Key {index}: {type}",
   "@signSheetKeyTitle": {
     "placeholders": {
@@ -2767,5 +2769,24 @@
   "recoverConfirmTo": "To",
   "recoverConfirmSend": "Send",
   "recoveryUpdatedBackupBody": "Activation replaced this wallet’s signing keys. Save a new backup and replace the old one, which may no longer restore access. Keep your password and access to your registered email or phone.",
-  "mpcDeviceStorageUnavailable": "Secure device storage is unavailable. Check your device security settings before creating an MPC wallet."
+  "mpcDeviceStorageUnavailable": "Secure device storage is unavailable. Check your device security settings before creating an MPC wallet.",
+  "mpcActivationIntroTitle": "Enable sending on this device",
+  "mpcActivationIntroBody": "After restoring an MPC backup, this device needs its own signing key before you can send or swap.\n\nActivation keeps your wallet address and funds unchanged.",
+  "mpcActivationRequirementsTitle": "Have your password and code ready",
+  "mpcActivationRequirementsBody": "You will need your wallet password and a code sent to the email or phone used to create this wallet.\n\nActivation replaces the signing keys. A previously activated device will need activation again before it can sign.",
+  "mpcDeviceResetIntroTitle": "Replace this device's key",
+  "mpcDeviceResetIntroBody": "Create a new signing key for this phone and invalidate its previous key. Use this if you suspect that key was exposed.\n\nYour wallet address and funds stay the same.",
+  "mpcDeviceResetRequirementsTitle": "Confirm that it's you",
+  "mpcDeviceResetRequirementsBody": "You will need this device's current key, your wallet password and a code sent to your registered email or phone.\n\nThis replaces the signing keys. It does not change your email or phone.",
+  "mpcDeviceResetBackupWarningBody": "Once the device-key reset is complete, your previous backup will no longer work.\n\nAfter the reset, export and save a new backup file. You will need this new backup to restore your wallet in the future.",
+  "mpcActivationBackupWarningTitle": "You will need a new backup",
+  "mpcActivationBackupWarningBody": "Once 2FA activation is complete, your previous backup will no longer work.\n\nAfter activation, export and save a new backup file. You will need this new backup to restore your wallet in the future.",
+  "walletTokenSearchHint": "ticker, name or CA",
+  "securityMpcWalletTitle": "MPC Wallet",
+  "securityMpcWalletsOnly": "MPC wallets only",
+  "signSheetRecoveryTitle": "Recovery code",
+  "signSheetDeviceTitle": "This device",
+  "tokenDetailBalance": "Balance",
+  "accountAddImportMenuTitle": "Import",
+  "accountAddImportMenuSubtitle": "Add a private key, seed phrase or Tibane MPC backup."
 }

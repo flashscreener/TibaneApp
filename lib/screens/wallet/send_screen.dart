@@ -28,6 +28,7 @@ import '../../widgets/network_logos.dart';
 import '../../widgets/tibane_card.dart';
 import '../../widgets/token_icon.dart';
 import '../../widgets/tx_success.dart';
+import '../../widgets/wallet_error_display.dart';
 import 'widgets/authorize_and_sign.dart';
 import 'widgets/send_account_picker.dart';
 import '../../utils/amount.dart';
@@ -227,7 +228,7 @@ class _SendScreenState extends State<SendScreen> {
   bool _reviewingSend = false;
   bool _loadingMax = false;
   int _maxRequest = 0;
-  String? _error;
+  Object? _error;
 
   // ENS / SNS resolution state for the recipient field.
   Timer? _resolveDebounce;
@@ -830,7 +831,7 @@ class _SendScreenState extends State<SendScreen> {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = walletErrorMessageForContext(context, e);
+        _error = WalletError.from(e);
       });
       return;
     }
@@ -886,7 +887,7 @@ class _SendScreenState extends State<SendScreen> {
     } catch (e) {
       logError('[Send._send] send error: $e');
       if (!mounted) return;
-      setState(() => _error = walletErrorMessageForContext(context, e));
+      setState(() => _error = WalletError.from(e));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -1177,13 +1178,16 @@ class _SendScreenState extends State<SendScreen> {
               ],
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  style: const TextStyle(
-                    color: TibaneColors.error,
-                    fontSize: 13,
+                if (_error is WalletError)
+                  walletErrorCard(_error!)
+                else
+                  Text(
+                    _error.toString(),
+                    style: const TextStyle(
+                      color: TibaneColors.error,
+                      fontSize: 13,
+                    ),
                   ),
-                ),
               ],
               const Spacer(),
               FilledButton(

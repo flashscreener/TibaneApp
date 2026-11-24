@@ -57,7 +57,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 6),
           SettingsTile(
             key: const Key('settings-tools'),
-            icon: Icons.handyman_outlined,
             title: l10n.homeToolsCardTitle,
             subtitle: l10n.settingsToolsSubtitle,
             onTap: () => Navigator.of(

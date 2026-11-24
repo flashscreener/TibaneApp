@@ -10,6 +10,8 @@ import '../../../theme/tibane_theme.dart';
 import '../../../utils/wallet_error.dart';
 import '../../../widgets/gradient_button.dart';
 import '../../../utils/context_extensions.dart';
+import '../inapp_unlock_screen.dart';
+import '../mpc_key_operation_intro_screen.dart';
 import 'wallet_password_dialog.dart';
 
 /// Per-transaction sign sheet (Atonline-parity Phase 1, §4.3).
@@ -23,7 +25,7 @@ import 'wallet_password_dialog.dart';
 ///  * **Password** → prompt, kept as `SigningKey(id, typedPassword, 'Password')`.
 ///  * **StoreKey** → resolved via [readStoreKey] (the §3.2 fallback chain:
 ///    biometric_storage → no-auth keystore → password blob).
-///  * **RemoteKey** → disabled (recovery-only / dormant, D9).
+///  * **RemoteKey** → omitted (recovery-only / dormant, D9).
 ///
 /// Returns the collected `List<SigningKey>` on confirm, or `null` on cancel /
 /// dismiss. [readStoreKey] receives the StoreKey [WalletKey] and the password
@@ -115,7 +117,8 @@ Future<List<SigningKey>?> showSignSheet(
       SigningKey(id: wallet.keys.single.id, key: password, type: 'Password'),
     ];
   }
-  return showModalBottomSheet<List<SigningKey>>(
+  var recoveryRequested = false;
+  final keys = await showModalBottomSheet<List<SigningKey>>(
     context: context,
     backgroundColor: TibaneColors.card,
     isScrollControlled: true,
@@ -129,8 +132,25 @@ Future<List<SigningKey>?> showSignSheet(
       subtitlePurpose: subtitlePurpose ?? 'sign this transaction',
       actionLabel: actionLabel,
       confirmationStyle: confirmationStyle,
+      onRecoverDevice: () {
+        recoveryRequested = true;
+      },
     ),
   );
+  if (recoveryRequested && context.mounted) {
+    final confirmed = await showMpcActivationWarning(context);
+    if (confirmed && context.mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              InAppUnlockScreen(walletId: wallet.id, startActivation: true),
+        ),
+      );
+    }
+    // Recovery rotates the shares. Never resume a pending signature with old keys.
+    return null;
+  }
+  return keys;
 }
 
 class _SignSheet extends StatefulWidget {
@@ -141,6 +161,7 @@ class _SignSheet extends StatefulWidget {
     required this.subtitlePurpose,
     required this.actionLabel,
     required this.confirmationStyle,
+    required this.onRecoverDevice,
   });
 
   final Wallet wallet;
@@ -150,6 +171,7 @@ class _SignSheet extends StatefulWidget {
   final String subtitlePurpose;
   final String actionLabel;
   final bool confirmationStyle;
+  final VoidCallback onRecoverDevice;
 
   @override
   State<_SignSheet> createState() => _SignSheetState();
@@ -161,6 +183,7 @@ class _SignSheetState extends State<_SignSheet> {
   String? _storeKeyPriv; // cached so a re-tap doesn't re-prompt biometric
   bool _busy = false;
   String? _error;
+  bool _deviceKeyUnavailable = false;
 
   Wallet get _wallet => widget.wallet;
   int get _required => requiredSigningShares(_wallet.threshold);
@@ -170,7 +193,10 @@ class _SignSheetState extends State<_SignSheet> {
 
   Future<void> _unlock(WalletKey key) async {
     if (_busy || _isUnlocked(key) || key.isRemoteKey) return;
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _deviceKeyUnavailable = false;
+    });
 
     if (key.isPassword) {
       // Reuse the password already typed this sheet, so a D5 wallet's two
@@ -198,7 +224,10 @@ class _SignSheetState extends State<_SignSheet> {
             '[signSheet] StoreKey ${key.id} unreadable on this device '
             '(biometric/keystore/blob all empty)',
           );
-          setState(() => _error = context.l10n.signSheetDeviceKeyError);
+          setState(() {
+            _error = context.l10n.signSheetDeviceKeyError;
+            _deviceKeyUnavailable = true;
+          });
           return;
         }
         setState(() {
@@ -217,8 +246,15 @@ class _SignSheetState extends State<_SignSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final displayKeys = [
+      ..._wallet.keys.where((key) => key.isStoreKey),
+      ..._wallet.keys.where((key) => key.isPassword),
+      ..._wallet.keys.where(
+        (key) => !key.isRemoteKey && !key.isStoreKey && !key.isPassword,
+      ),
+    ];
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -245,14 +281,28 @@ class _SignSheetState extends State<_SignSheet> {
               style: const TextStyle(color: TibaneColors.textMuted),
             ),
             const SizedBox(height: 16),
-            for (var i = 0; i < _wallet.keys.length; i++)
-              _keyRow(i, _wallet.keys[i], l10n),
+            for (final key in displayKeys) _keyRow(key, l10n),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(
                 _error!,
                 style: const TextStyle(color: TibaneColors.error, fontSize: 13),
               ),
+              if (_deviceKeyUnavailable &&
+                  _wallet.keys.any((key) => key.isRemoteKey)) ...[
+                const SizedBox(height: 12),
+                GradientButton(
+                  key: const Key('sign-recover-device'),
+                  label: l10n.inappUnlockSetupTitle,
+                  expanded: true,
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          widget.onRecoverDevice();
+                          Navigator.of(context).pop();
+                        },
+                ),
+              ],
             ],
             const SizedBox(height: 12),
             Text(
@@ -304,55 +354,58 @@ class _SignSheetState extends State<_SignSheet> {
     );
   }
 
-  Widget _keyRow(int index, WalletKey key, AppLocalizations l10n) {
+  Widget _keyRow(WalletKey key, AppLocalizations l10n) {
     final unlocked = _isUnlocked(key);
-    final remote = key.isRemoteKey;
     final loading = _busy && key.isStoreKey && !unlocked;
-    final subtitle = remote
-        ? l10n.signSheetKeyRemote
-        : key.isStoreKey
+    final subtitle = key.isStoreKey
         ? l10n.signSheetKeyDevice
-        : l10n.labelPassword;
+        : l10n.signSheetPasswordTitle;
+    final title = key.isStoreKey
+        ? l10n.signSheetDeviceTitle
+        : key.isPassword
+        ? l10n.labelPassword
+        : key.type;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: TibaneColors.surface,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: unlocked ? TibaneColors.cyan : TibaneColors.border,
+          color: unlocked ? TibaneColors.orange : TibaneColors.border,
         ),
       ),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: ListTile(
-          onTap: (unlocked || remote || _busy) ? null : () => _unlock(key),
-          leading: loading
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(
-                  unlocked
-                      ? Icons.lock_open
-                      : remote
-                      ? Icons.lock_outline
-                      : Icons.lock,
-                  color: unlocked
-                      ? TibaneColors.cyan
-                      : remote
-                      ? TibaneColors.textDim
-                      : TibaneColors.textMuted,
-                ),
-          title: Text(l10n.signSheetKeyTitle((index + 1).toString(), key.type)),
+          key: ValueKey('sign-share-${key.id}'),
+          onTap: (unlocked || _busy) ? null : () => _unlock(key),
+          leading: Semantics(
+            checked: unlocked,
+            child: loading
+                ? const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: TibaneColors.orange,
+                    ),
+                  )
+                : Icon(
+                    unlocked
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    size: 26,
+                    color: unlocked
+                        ? TibaneColors.orange
+                        : TibaneColors.textMuted,
+                  ),
+          ),
+          title: Text(title),
           subtitle: Text(
             subtitle,
-            style: const TextStyle(color: TibaneColors.textDim, fontSize: 12),
+            style: const TextStyle(color: TibaneColors.textMuted, fontSize: 12),
           ),
-          trailing: unlocked
-              ? const Icon(Icons.check, color: TibaneColors.cyan, size: 18)
-              : null,
         ),
       ),
     );

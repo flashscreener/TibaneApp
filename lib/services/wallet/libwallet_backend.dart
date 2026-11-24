@@ -3545,7 +3545,7 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
     );
     // LibWallet builds and simulates the transfer. Never approve a preview
     // when simulation fails; the send screen must surface that failure.
-    final simulation = await client.transactions.simulate(tx);
+    final simulation = await _simulateSendPreview(client, tx, network, source);
     if (network.type != NetworkType.solana ||
         !simulation.willRevert ||
         !(simulation.revertReason?.contains('IncorrectProgramId') ?? false)) {
@@ -3581,7 +3581,40 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
       debugPrint('[send] Unable to verify registered Solana token program: $e');
       return simulation;
     }
-    return client.transactions.simulate(tx);
+    return _simulateSendPreview(client, tx, network, source);
+  }
+
+  Future<TransactionSimulation> _simulateSendPreview(
+    LibwalletClient client,
+    UnsignedTransaction tx,
+    Network network,
+    String sourceAccount,
+  ) async {
+    for (var attempt = 0; ; attempt++) {
+      if (sourceAccount != accountId ||
+          (currentNetwork != null && currentNetwork!.id != network.id)) {
+        throw StateError('wallet_operation_changed');
+      }
+      try {
+        return await client.transactions.simulate(tx);
+      } on LibwalletException catch (error) {
+        final message = error.message.toLowerCase();
+        final temporaryReadFailure =
+            network.type == NetworkType.solana &&
+            message.contains('rpc ') &&
+            message.contains('request failed:') &&
+            const [
+              'unexpected end of response',
+              'connection reset',
+              'resource temporarily unavailable',
+              'broken pipe',
+            ].any(message.contains);
+        if (!temporaryReadFailure || attempt >= 2) rethrow;
+        // Simulation cannot broadcast. Retry only incomplete RPC reads, never
+        // an on-chain revert, certificate failure, signing or send operation.
+        await Future<void>.delayed(Duration(milliseconds: 300 * (attempt + 1)));
+      }
+    }
   }
 
   // ------------------------------------------------------------------

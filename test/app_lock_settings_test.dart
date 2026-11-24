@@ -39,6 +39,9 @@ Future<void> _pump(
     ),
   );
   await tester.pumpAndSettle();
+  expect(find.byKey(const Key('app-lock-mode-biometric')), findsNothing);
+  await tester.tap(find.byKey(const Key('app-lock-settings-entry')));
+  await tester.pumpAndSettle();
 }
 
 void main() {

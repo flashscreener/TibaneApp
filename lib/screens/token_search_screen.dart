@@ -6,11 +6,14 @@ import '../widgets/token_search.dart';
 import 'token_detail_screen.dart';
 
 class TokenSearchScreen extends StatelessWidget {
-  const TokenSearchScreen({super.key});
+  const TokenSearchScreen({super.key, this.autofocus = false});
+
+  final bool autofocus;
 
   Future<void> _openToken(BuildContext context, String input) async {
     final mint = input.trim();
     if (mint.length < 32) return;
+    FocusScope.of(context).unfocus();
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => TokenDetailScreen(mint: mint)));
@@ -24,6 +27,8 @@ class TokenSearchScreen extends StatelessWidget {
       body: Padding(
         padding: const EdgeInsets.only(top: 16),
         child: TokenSearch(
+          autofocus: autofocus,
+          network: 'solana.mainnet',
           onResultSelected: (result) => _openToken(context, result.mint),
           onMintSubmitted: (mint) => _openToken(context, mint),
         ),

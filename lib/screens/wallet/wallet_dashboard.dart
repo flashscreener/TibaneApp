@@ -20,6 +20,7 @@ import '../../widgets/token_icon.dart';
 import '../../widgets/token_picker_tile.dart';
 import '../swap_screen.dart';
 import '../token_detail_screen.dart';
+import '../token_search_screen.dart';
 import 'receive_screen.dart';
 import 'send_screen.dart';
 import 'widgets/wallet_action_button.dart';
@@ -207,7 +208,7 @@ class _WalletDashboardState extends State<WalletDashboard> {
               return Row(
                 children: [
                   WalletActionButton(
-                    icon: Icons.arrow_downward,
+                    icon: WalletActionIcon.receive,
                     label: l10n.receiveTitle,
                     onTap: () => Navigator.push(
                       context,
@@ -216,7 +217,7 @@ class _WalletDashboardState extends State<WalletDashboard> {
                   ),
                   const SizedBox(width: 12),
                   WalletActionButton(
-                    icon: Icons.arrow_upward,
+                    icon: WalletActionIcon.send,
                     label: l10n.dashboardSend,
                     onTap: () => Navigator.push(
                       context,
@@ -226,7 +227,7 @@ class _WalletDashboardState extends State<WalletDashboard> {
                   if (!isUk) ...[
                     const SizedBox(width: 12),
                     WalletActionButton(
-                      icon: Icons.swap_horiz,
+                      icon: WalletActionIcon.swap,
                       label: l10n.swapButton,
                       onTap: () => _openSwap(context),
                     ),
@@ -235,7 +236,34 @@ class _WalletDashboardState extends State<WalletDashboard> {
               );
             },
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            key: const Key('wallet-token-search'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const TokenSearchScreen(autofocus: true),
+              ),
+            ),
+            icon: const Icon(Icons.search, size: 18),
+            label: Text(
+              l10n.walletTokenSearchHint,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            style: OutlinedButton.styleFrom(
+              alignment: AlignmentDirectional.centerStart,
+              foregroundColor: TibaneColors.textMuted.withValues(alpha: 0.512),
+              side: BorderSide(
+                color: TibaneColors.orange.withValues(alpha: 0.324),
+              ),
+              minimumSize: const Size(0, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
 
           ...[
             if (visibleTokens.isEmpty)
@@ -266,7 +294,8 @@ class _WalletDashboardState extends State<WalletDashboard> {
                 if (isSolanaNative) {
                   openDetails = () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const TokenDetailScreen(mint: wsolMint),
+                      builder: (_) =>
+                          TokenDetailScreen(mint: wsolMint, initialHolding: h),
                     ),
                   );
                 } else if (isEvmNative) {
@@ -281,7 +310,8 @@ class _WalletDashboardState extends State<WalletDashboard> {
                 } else if (!isNativeRow) {
                   openDetails = () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => TokenDetailScreen(mint: h.mint),
+                      builder: (_) =>
+                          TokenDetailScreen(mint: h.mint, initialHolding: h),
                     ),
                   );
                 }

@@ -217,25 +217,9 @@ void main() {
         await tester.ensureVisible(add);
         await tester.tap(add);
         await tester.pumpAndSettle();
-        final dialog = find.byType(AlertDialog);
-        expect(
-          find.descendant(of: dialog, matching: find.text('Add New')),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(of: dialog, matching: find.byType(Text)),
-          findsNWidgets(4),
-        );
-        final cancel = tester.widget<FilledButton>(
-          find.descendant(
-            of: dialog,
-            matching: find.widgetWithText(FilledButton, 'Cancel'),
-          ),
-        );
-        expect(
-          cancel.style?.backgroundColor?.resolve({}),
-          TibaneColors.textDim,
-        );
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('Add New'), findsOneWidget);
+        expect(find.text('Wallets & Accounts'), findsOneWidget);
         expect(find.text('Create New Account'), findsNothing);
       }
 
@@ -252,8 +236,21 @@ void main() {
       await tester.pumpAndSettle();
 
       await openMenu();
-      await tester.tap(find.text('Import Another Account'));
+      await tester.tap(find.text('Import'));
       await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('wallet-import-seed-option')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('wallet-import-backup-option')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('wallet-import-private-key-option')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check), findsNothing);
       final screen = tester.widget<InAppImportPrivateKeyScreen>(
         find.byType(InAppImportPrivateKeyScreen),
       );
@@ -299,7 +296,7 @@ void main() {
       await tester.tap(add);
       await tester.pumpAndSettle();
       expect(find.text('Create New Account'), findsNothing);
-      expect(find.text('Import Another Account'), findsOneWidget);
+      expect(find.text('Import'), findsOneWidget);
 
       await tester.tap(find.text('Create wallet'));
       await tester.pumpAndSettle();

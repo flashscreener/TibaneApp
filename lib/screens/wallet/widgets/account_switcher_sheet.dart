@@ -17,12 +17,12 @@ import '../../../widgets/network_logos.dart';
 import '../../../widgets/wallet_error_display.dart';
 import '../../../utils/context_extensions.dart';
 import '../create_account_screen.dart';
-import '../inapp_import_private_key_screen.dart';
+import '../inapp_import_screen.dart';
 import '../wallet_create_options_screen.dart';
 import 'account_switcher_view_model.dart';
 import 'sign_sheet.dart';
 
-enum _AddAccountChoice { create, createWallet, importPrivateKey }
+enum _AddAccountChoice { create, createWallet, import }
 
 /// Open the account switcher (Atonline-parity §4.1/§4.2, Phase 4b-2): the unified
 /// list of in-app accounts (across all wallets) + the connected MWA account,
@@ -389,9 +389,10 @@ class _AccountSwitcherSheetState extends State<AccountSwitcherSheet> {
         selectedWallet != null &&
         supportsDerivedAccounts(selectedWallet) &&
         groups.any((group) => group.containsWallet(targetWalletId));
-    final choice = await showDialog<_AddAccountChoice>(
-      context: context,
-      builder: (_) => _AddAccountChoiceDialog(canDerive: canDerive),
+    final choice = await Navigator.of(context).push<_AddAccountChoice>(
+      MaterialPageRoute(
+        builder: (_) => _AddAccountChoiceScreen(canDerive: canDerive),
+      ),
     );
     if (choice == null || !context.mounted) return;
     if (choice == _AddAccountChoice.createWallet) {
@@ -404,10 +405,10 @@ class _AccountSwitcherSheetState extends State<AccountSwitcherSheet> {
       }
       return;
     }
-    if (choice == _AddAccountChoice.importPrivateKey) {
+    if (choice == _AddAccountChoice.import) {
       final imported = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
-          builder: (_) => InAppImportPrivateKeyScreen(
+          builder: (_) => InAppImportScreen(
             groups: groups.isEmpty ? const [] : allGroups,
             target: target,
           ),
@@ -470,99 +471,100 @@ class _AccountSwitcherSheetState extends State<AccountSwitcherSheet> {
   }
 }
 
-class _AddAccountChoiceDialog extends StatelessWidget {
-  const _AddAccountChoiceDialog({required this.canDerive});
+class _AddAccountChoiceScreen extends StatelessWidget {
+  const _AddAccountChoiceScreen({required this.canDerive});
 
   final bool canDerive;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return AlertDialog(
+    return Scaffold(
       backgroundColor: TibaneColors.card,
-      scrollable: true,
-      title: Text(l10n.accountSwitcherAddAccount),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      appBar: AppBar(
+        backgroundColor: TibaneColors.card,
+        automaticallyImplyLeading: false,
+        title: TextButton.icon(
+          style: TextButton.styleFrom(foregroundColor: TibaneColors.orange),
+          icon: const Icon(Icons.arrow_back),
+          label: Text(l10n.settingsWalletsAccountsTitle),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 24, 18, 32),
         children: [
-          _ChoiceTile(
-            icon: Icons.add_circle_outline,
-            title: canDerive
-                ? l10n.accountAddCreateTitle
-                : l10n.inappCreateButton,
-            onTap: () => Navigator.pop(
+          Text(
+            l10n.accountSwitcherAddAccount,
+            style: Theme.of(
               context,
-              canDerive
-                  ? _AddAccountChoice.create
-                  : _AddAccountChoice.createWallet,
-            ),
+            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 28),
+          _ChoiceTile(
+            title: l10n.inappCreateButton,
+            subtitle: l10n.accountAddCreateWalletSubtitle,
+            onTap: () => Navigator.pop(context, _AddAccountChoice.createWallet),
           ),
           const SizedBox(height: 10),
+          if (canDerive) ...[
+            _ChoiceTile(
+              title: l10n.accountAddCreateTitle,
+              subtitle: l10n.accountAddCreateSubtitle,
+              onTap: () => Navigator.pop(context, _AddAccountChoice.create),
+            ),
+            const SizedBox(height: 10),
+          ],
           _ChoiceTile(
-            icon: Icons.key_outlined,
-            title: canDerive
-                ? l10n.accountAddImportTitle
-                : l10n.accountAddImportAnotherTitle,
-            onTap: () =>
-                Navigator.pop(context, _AddAccountChoice.importPrivateKey),
+            title: l10n.accountAddImportMenuTitle,
+            subtitle: l10n.accountAddImportMenuSubtitle,
+            onTap: () => Navigator.pop(context, _AddAccountChoice.import),
           ),
         ],
       ),
-      actions: [
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: TibaneColors.textDim,
-            foregroundColor: TibaneColors.text,
-          ),
-          onPressed: () => Navigator.pop(context),
-          child: Text(l10n.actionCancel),
-        ),
-      ],
     );
   }
 }
 
 class _ChoiceTile extends StatelessWidget {
-  final IconData icon;
   final String title;
+  final String subtitle;
   final VoidCallback onTap;
 
   const _ChoiceTile({
-    required this.icon,
     required this.title,
+    required this.subtitle,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = DefaultTextStyle.of(context).style;
     return Material(
       color: TibaneColors.darker,
-      borderRadius: BorderRadius.circular(8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: TibaneColors.textDim.withValues(alpha: 0.25)),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: TibaneColors.orange, size: 22),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: titleStyle.copyWith(
-                    fontSize: (titleStyle.fontSize ?? 14) * 1.15,
-                    color: TibaneColors.text,
-                    fontWeight: FontWeight.w600,
-                  ),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: TibaneColors.orange,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              const Icon(
-                Icons.chevron_right,
-                color: TibaneColors.textDim,
-                size: 20,
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: const TextStyle(color: TibaneColors.textMuted),
               ),
             ],
           ),

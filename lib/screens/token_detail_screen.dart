@@ -18,6 +18,7 @@ import '../theme/tibane_theme.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/tibane_card.dart';
 import '../widgets/token_icon.dart';
+import '../widgets/token_picker_tile.dart' show VerifiedTokenBadge;
 import '../widgets/tx_success.dart';
 import 'staking/staking_detail_screen.dart';
 import 'swap_screen.dart';
@@ -29,6 +30,20 @@ import '../utils/context_extensions.dart';
 
 const _sectionTitleSize = 13.75;
 
+TextStyle _tokenCardTitleStyle() => monoStyle(
+  fontSize: 15,
+  color: TibaneColors.textMuted,
+  fontWeight: FontWeight.w600,
+);
+
+String _formatCompactBalance(double value) {
+  final magnitude = value.abs();
+  if (magnitude >= 999995000) return '${(value / 1e9).toStringAsFixed(2)}B';
+  if (magnitude >= 999995) return '${(value / 1e6).toStringAsFixed(2)}M';
+  if (magnitude >= 999.995) return '${(value / 1e3).toStringAsFixed(2)}k';
+  return value.toStringAsFixed(2);
+}
+
 /// Read-only analytics view for a single SPL token: metadata, supply,
 /// market cap, top holders and an optional staking-pool entry point.
 /// Pushed as its own route by
@@ -38,9 +53,10 @@ const _sectionTitleSize = 13.75;
 class TokenDetailScreen extends StatefulWidget {
   final String mint;
   final TokenHolding? nativeHolding;
+  final TokenHolding? initialHolding;
   final String? nativeAssetPath;
 
-  const TokenDetailScreen({super.key, required this.mint})
+  const TokenDetailScreen({super.key, required this.mint, this.initialHolding})
     : nativeHolding = null,
       nativeAssetPath = null;
 
@@ -49,6 +65,7 @@ class TokenDetailScreen extends StatefulWidget {
     required TokenHolding holding,
     this.nativeAssetPath,
   }) : mint = holding.mint,
+       initialHolding = holding,
        nativeHolding = holding;
 
   @override
@@ -67,11 +84,24 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
   // null until the first lookup completes; the Send button stays
   // disabled until we have a positive value to send.
   BigInt? _userBalance;
+  double? _change24h;
+  late final Future<bool> _verified;
 
   @override
   void initState() {
     super.initState();
+    _userBalance = widget.initialHolding?.balance;
+    _change24h = widget.initialHolding?.priceChange24h;
+    _verified = _loadVerification();
     _loadToken();
+  }
+
+  Future<bool> _loadVerification() async {
+    final backend = context.read<WalletService>().libwallet;
+    final addresses = await backend.verifiedCuratedTokenAddresses(
+      network: widget.nativeHolding == null ? 'solana.mainnet' : null,
+    );
+    return addresses.contains(widget.mint);
   }
 
   @override
@@ -111,6 +141,7 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
           name: 'Solana',
           symbol: 'SOL',
           decimals: 9,
+          pricePerToken: widget.initialHolding?.priceUsd,
         );
         _holders = const [];
         _loading = false;
@@ -148,21 +179,23 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
     }
   }
 
-  /// When ModChain's getAsset has no price, ask Jupiter's price API — which
-  /// covers any actively-traded SPL — so the Market Cap stat can
-  /// render for the long tail of tokens too. Idempotent: skips if a
-  /// price is already populated or if the screen has unmounted.
+  /// Preserve the ModChain price when available and fill missing quote data.
   Future<void> _backfillPriceIfMissing() async {
     final token = _token;
-    if (token == null || token.pricePerToken != null) return;
+    if (token == null || (token.pricePerToken != null && _change24h != null)) {
+      return;
+    }
     final jupiter = JupiterService();
     try {
-      final prices = await jupiter.fetchTokenPrices([widget.mint]);
+      final quotes = await jupiter.fetchTokenPriceQuotes([widget.mint]);
       if (!mounted) return;
-      final price = prices[widget.mint];
-      if (price == null || price <= 0) return;
+      final quote = quotes[widget.mint];
+      if (quote == null) return;
       setState(() {
-        _token = _token!.copyWith(pricePerToken: price);
+        _token = _token!.copyWith(
+          pricePerToken: _token!.pricePerToken ?? quote.priceUsd,
+        );
+        _change24h = quote.percentChange24h ?? _change24h;
       });
     } finally {
       jupiter.dispose();
@@ -192,7 +225,7 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
           if (acc.mint == widget.mint) total += acc.amount;
         }
       }
-      if (!mounted) return;
+      if (!mounted || wallet.publicKey != owner) return;
       setState(() => _userBalance = total);
     } catch (e) {
       if (!mounted) return;
@@ -272,6 +305,8 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
               holders: _holders,
               stakingPool: _stakingPool,
               userBalance: _userBalance,
+              change24h: _change24h,
+              verified: _verified,
               nativeAssetPath: widget.nativeAssetPath,
               onRefresh: _loadToken,
             ),
@@ -284,6 +319,8 @@ class _TokenDetails extends StatelessWidget {
   final List<TokenHolder> holders;
   final StakingPool? stakingPool;
   final BigInt? userBalance;
+  final double? change24h;
+  final Future<bool> verified;
   final String? nativeAssetPath;
   final Future<void> Function() onRefresh;
 
@@ -291,6 +328,8 @@ class _TokenDetails extends StatelessWidget {
     required this.token,
     required this.holders,
     required this.onRefresh,
+    required this.verified,
+    this.change24h,
     this.stakingPool,
     this.userBalance,
     this.nativeAssetPath,
@@ -312,19 +351,23 @@ class _TokenDetails extends StatelessWidget {
               token: token,
               nativeAssetPath: nativeAssetPath,
               isNative: isNative,
+              verified: verified,
             ),
             const SizedBox(height: 12),
 
             _TokenActions(token: token, userBalance: userBalance),
+            const SizedBox(height: 20),
+            _TokenBalanceCard(
+              token: token,
+              balance: userBalance,
+              change24h: change24h,
+            ),
+            const SizedBox(height: 8),
 
-            if (isNative && token.pricePerToken != null) ...[
-              const SizedBox(height: 20),
+            if (isNative && token.pricePerToken != null)
               _TokenPriceCard(price: token.pricePerToken),
-            ],
 
             if (!isNative) ...[
-              const SizedBox(height: 20),
-
               _MarketSection(token: token),
               const SizedBox(height: 20),
 
@@ -350,11 +393,7 @@ class _TokenDetails extends StatelessWidget {
                         Expanded(
                           child: Text(
                             context.l10n.tokenDetailStakingPool,
-                            style: const TextStyle(
-                              color: TibaneColors.text,
-                              fontSize: _sectionTitleSize,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: _tokenCardTitleStyle(),
                           ),
                         ),
                         Container(
@@ -401,10 +440,12 @@ class _TokenHeader extends StatelessWidget {
   final TokenMetadata token;
   final String? nativeAssetPath;
   final bool isNative;
+  final Future<bool> verified;
 
   const _TokenHeader({
     required this.token,
     required this.isNative,
+    required this.verified,
     this.nativeAssetPath,
   });
 
@@ -429,16 +470,28 @@ class _TokenHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        token.name ?? context.l10n.tokenDetailUnknownToken,
-                        maxLines: 1,
-                        style: context.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            token.name ?? context.l10n.tokenDetailUnknownToken,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                      ),
+                        FutureBuilder<bool>(
+                          future: verified,
+                          builder: (_, snapshot) => snapshot.data == true
+                              ? const Padding(
+                                  padding: EdgeInsets.only(left: 6),
+                                  child: VerifiedTokenBadge(),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
                     ),
                     if (token.symbol != null)
                       Text(
@@ -526,7 +579,7 @@ class _TokenActions extends StatelessWidget {
       children: [
         WalletActionButton(
           label: l10n.receiveTitle,
-          icon: Icons.arrow_downward,
+          icon: WalletActionIcon.receive,
           onTap: () => Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => const ReceiveScreen())),
@@ -534,7 +587,7 @@ class _TokenActions extends StatelessWidget {
         const SizedBox(width: 12),
         WalletActionButton(
           label: l10n.dashboardSend,
-          icon: Icons.arrow_upward,
+          icon: WalletActionIcon.send,
           onTap: canSend
               ? () => Navigator.of(context).push(
                   MaterialPageRoute(
@@ -553,7 +606,7 @@ class _TokenActions extends StatelessWidget {
           const SizedBox(width: 12),
           WalletActionButton(
             label: l10n.swapButton,
-            icon: Icons.swap_horiz,
+            icon: WalletActionIcon.swap,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => Scaffold(
@@ -641,26 +694,86 @@ class _TokenPriceCard extends StatelessWidget {
   }
 }
 
+class _TokenBalanceCard extends StatelessWidget {
+  const _TokenBalanceCard({
+    required this.token,
+    required this.balance,
+    required this.change24h,
+  });
+
+  final TokenMetadata token;
+  final BigInt? balance;
+  final double? change24h;
+
+  @override
+  Widget build(BuildContext context) {
+    final amount = balance;
+    final price = token.pricePerToken;
+    final quantity = amount == null
+        ? null
+        : amount.toDouble() / BigInt.from(10).pow(token.decimals).toDouble();
+    final usd = quantity == null || price == null ? null : quantity * price;
+    final change = change24h;
+    return _TokenStatCard(
+      label: context.l10n.tokenDetailBalance,
+      value: quantity == null || !quantity.isFinite
+          ? '—'
+          : _formatCompactBalance(quantity),
+      trailing: usd == null || !usd.isFinite
+          ? '—'
+          : '\$${_formatCompactBalance(usd)}',
+      change: amount != null && amount > BigInt.zero && change?.isFinite == true
+          ? change
+          : null,
+    );
+  }
+}
+
 class _TokenStatCard extends StatelessWidget {
   final String label;
   final String value;
-  const _TokenStatCard({required this.label, required this.value});
+  final String? trailing;
+  final double? change;
+  const _TokenStatCard({
+    required this.label,
+    required this.value,
+    this.trailing,
+    this.change,
+  });
 
   @override
   Widget build(BuildContext context) {
     final style = context.textTheme.titleLarge;
     final valueSize = (style?.fontSize ?? 22) * 1.15;
     const valueLineHeight = 1.3;
+    final valueStyle = (style ?? const TextStyle()).copyWith(
+      color: TibaneColors.text,
+      fontWeight: FontWeight.w700,
+      fontSize: valueSize,
+      height: valueLineHeight,
+    );
+    final percent = change;
+    final changeColor = percent == null || percent == 0
+        ? TibaneColors.textMuted
+        : percent > 0
+        ? TibaneColors.cyan
+        : TibaneColors.error;
+    Widget amount(String text, AlignmentDirectional alignment) => FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: alignment,
+      child: Text(text, maxLines: 1, style: valueStyle),
+    );
     return TibaneCard(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label.toUpperCase(),
-            style: monoStyle(
-              fontSize: _sectionTitleSize,
-              color: TibaneColors.textMuted,
+          SizedBox(
+            height: MediaQuery.textScalerOf(context).scale(15) * 1.4,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(label.toUpperCase(), style: _tokenCardTitleStyle()),
             ),
           ),
           const SizedBox(height: 8),
@@ -669,19 +782,45 @@ class _TokenStatCard extends StatelessWidget {
                 (MediaQuery.textScalerOf(context).scale(valueSize) *
                         valueLineHeight)
                     .ceilToDouble(),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: AlignmentDirectional.centerStart,
-              child: Text(
-                value,
-                maxLines: 1,
-                style: (style ?? const TextStyle()).copyWith(
-                  color: TibaneColors.text,
-                  fontWeight: FontWeight.w700,
-                  fontSize: valueSize,
-                  height: valueLineHeight,
+            child: Row(
+              children: [
+                Expanded(
+                  child: amount(value, AlignmentDirectional.centerStart),
                 ),
-              ),
+                if (trailing case final right?) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: amount(right, AlignmentDirectional.centerEnd),
+                  ),
+                ],
+                if (percent != null) ...[
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Container(
+                        key: const Key('token-balance-change-24h'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: changeColor.withValues(alpha: 0.13),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${percent > 0 ? '+' : ''}${percent.toStringAsFixed(2)}%',
+                          style: TextStyle(
+                            color: changeColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],

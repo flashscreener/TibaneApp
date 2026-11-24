@@ -106,6 +106,7 @@ class _Backend extends LibwalletBackend {
   int recoveries = 0;
   int repairs = 0;
   final recoverySessions = <String>[];
+  final recoveryPasswords = <String>[];
   @override
   String get walletId => 'wallet';
   @override
@@ -139,6 +140,7 @@ class _Backend extends LibwalletBackend {
   }) async {
     recoveries++;
     recoverySessions.add(sessionToken);
+    recoveryPasswords.add(password);
     recoveryFailed = failRecovery;
     return !failRecovery;
   }
@@ -220,10 +222,112 @@ Future<void> _tap(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _toBackupWarning(WidgetTester tester) async {
+  for (var step = 0; step < 2; step++) {
+    await tester.tap(find.byKey(const Key('mpc-key-operation-next')));
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
   for (final language in ['en', 'pt', 'fr', 'ja']) {
+    testWidgets(
+      'activation warning cancels without side effects in $language',
+      (tester) async {
+        final backend = _Backend(_Transport()..passwordOnly = false);
+        final l10n = await _pump(
+          tester,
+          backend,
+          language: language,
+          size: const Size(320, 568),
+        );
+        await _tap(tester, l10n.inappUnlockSetupTitle);
+        await _toBackupWarning(tester);
+        expect(find.text(l10n.mpcActivationBackupWarningTitle), findsOneWidget);
+        expect(find.text(l10n.mpcActivationBackupWarningBody), findsOneWidget);
+        expect(find.byType(TextField), findsNothing);
+        final cancel = find.widgetWithText(TextButton, l10n.actionCancel);
+        expect(
+          tester.widget<TextButton>(cancel).style!.backgroundColor!.resolve({}),
+          TibaneColors.surface,
+        );
+        await _tap(tester, l10n.actionCancel);
+        expect(find.text(l10n.mpcActivationBackupWarningTitle), findsNothing);
+        expect(find.text(l10n.inappUnlockChooserHeading), findsOneWidget);
+        expect(find.byType(TextField), findsNothing);
+        await _tap(tester, l10n.inappUnlockSetupTitle);
+        await _toBackupWarning(tester);
+        final warningContext = tester.element(
+          find.text(l10n.mpcActivationBackupWarningTitle),
+        );
+        Navigator.of(warningContext).pop();
+        await tester.pumpAndSettle();
+        expect(find.text(l10n.inappUnlockChooserHeading), findsOneWidget);
+        expect(backend.transport.codesSent, 0);
+        expect(backend.transport.passwordChecks, 0);
+        expect(backend.recoveries, 0);
+        expect(backend.repairs, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     for (final size in [const Size(320, 568), const Size(393, 852)]) {
+      testWidgets(
+        'activation code keeps its state above keyboard $language $size',
+        (tester) async {
+          final backend = _Backend(_Transport()..passwordOnly = false);
+          final l10n = await _pump(
+            tester,
+            backend,
+            language: language,
+            size: size,
+          );
+          addTearDown(tester.view.resetViewInsets);
+          await _tap(tester, l10n.inappUnlockSetupTitle);
+          await _toBackupWarning(tester);
+          await _tap(tester, l10n.actionConfirm);
+          await tester.enterText(
+            find.byKey(const Key('recovery-password-input')),
+            'fixture-password',
+          );
+          await _tap(tester, l10n.inappUnlockSendCode);
+          final code = find.byKey(const Key('recovery-code-input'));
+          final confirm = find.byKey(const Key('recovery-confirm'));
+          expect(
+            find.byKey(const Key('recovery-password-input')),
+            findsNothing,
+          );
+          expect(find.byType(TextField), findsOneWidget);
+          await tester.enterText(code, '123456');
+          tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+          await tester.pumpAndSettle();
+          expect(
+            tester.getRect(confirm).bottom,
+            lessThanOrEqualTo(size.height - 300),
+          );
+          expect(confirm.hitTestable(), findsOneWidget);
+          await tester.ensureVisible(code);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(l10n.inappUnlockTitle));
+          await tester.pumpAndSettle();
+          tester.view.viewInsets = FakeViewPadding.zero;
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('recovery-password-input')),
+            findsNothing,
+          );
+          expect(tester.widget<TextField>(code).controller!.text, '123456');
+          expect(backend.transport.codesSent, 1);
+          expect(backend.recoveries, 0);
+          await _tap(tester, l10n.inappUnlockVerifySetup);
+          expect(backend.recoveries, 1);
+          expect(backend.recoveryPasswords, ['fixture-password']);
+          expect(backend.recoverySessions, ['session-1']);
+          expect(tester.takeException(), isNull);
+        },
+      );
+
       testWidgets(
         'guided activation separates troubleshooting in $language at $size',
         (tester) async {
@@ -239,6 +343,13 @@ void main() {
           expect(find.text(l10n.inappUnlockRepairAction), findsNothing);
           expect(backend.transport.codesSent, 0);
           await _tap(tester, l10n.inappUnlockSetupTitle);
+          await _toBackupWarning(tester);
+          expect(
+            find.text(l10n.mpcActivationBackupWarningTitle),
+            findsOneWidget,
+          );
+          expect(backend.transport.codesSent, 0);
+          await _tap(tester, l10n.actionConfirm);
           expect(
             find.text(l10n.inappUnlockSingleDeviceWarning),
             findsOneWidget,
@@ -365,6 +476,8 @@ void main() {
         ..failRecovery = true;
       final l10n = await _pump(tester, backend);
       await _tap(tester, l10n.inappUnlockSetupTitle);
+      await _toBackupWarning(tester);
+      await _tap(tester, l10n.actionConfirm);
       await tester.enterText(find.byType(TextField), 'wrong-password');
       await _tap(tester, l10n.inappUnlockSendCode);
       expect(find.text(l10n.walletErrorIncorrectPassword), findsOneWidget);

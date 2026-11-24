@@ -6,12 +6,12 @@ import 'package:provider/provider.dart';
 import '../../l10n/l10n.dart';
 import '../../services/wallet_service.dart';
 import '../../theme/tibane_theme.dart';
-import '../../widgets/keyboard_safe_form.dart';
 import '../../widgets/tibane_card.dart';
 import '../../utils/log.dart';
 import '../../utils/wallet_error.dart';
 import '../../widgets/wallet_error_display.dart';
 import 'inapp_export_screen.dart';
+import 'mpc_key_operation_intro_screen.dart';
 
 /// 2FA device-share recovery screen (Atonline-parity §4.8). Signing is lockless
 /// (per-transaction via the sign sheet), so there is no "unlock" — this screen
@@ -25,7 +25,14 @@ class InAppUnlockScreen extends StatefulWidget {
   /// it (`LibwalletBackend.loadWalletForRecovery`).
   final String? walletId;
 
-  const InAppUnlockScreen({super.key, this.walletId});
+  /// Used only after the activation backup warning has been confirmed.
+  final bool startActivation;
+
+  const InAppUnlockScreen({
+    super.key,
+    this.walletId,
+    this.startActivation = false,
+  });
 
   @override
   State<InAppUnlockScreen> createState() => _InAppUnlockScreenState();
@@ -52,11 +59,28 @@ class _InAppUnlockScreenState extends State<InAppUnlockScreen> {
 
   /// True while showing activation guidance and optional troubleshooting.
   bool _choosing = true;
+  bool _warningOpen = false;
 
   @override
   void initState() {
     super.initState();
+    _choosing = !widget.startActivation;
     _probe();
+  }
+
+  Future<void> _beginActivation() async {
+    if (_busy || _warningOpen) return;
+    setState(() => _warningOpen = true);
+    final confirmed = await showMpcActivationWarning(context);
+    if (!mounted) return;
+    setState(() {
+      _warningOpen = false;
+      if (confirmed) {
+        _choosing = false;
+        _repairMode = false;
+        _error = null;
+      }
+    });
   }
 
   Future<void> _probe() async {
@@ -276,7 +300,7 @@ class _InAppUnlockScreenState extends State<InAppUnlockScreen> {
                     padding: const EdgeInsets.all(24),
                     child: _buildChooser(),
                   )
-                : KeyboardSafeForm(child: _buildFlow()),
+                : _buildFlow(),
           _Mode.ready => Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -341,13 +365,7 @@ class _InAppUnlockScreenState extends State<InAppUnlockScreen> {
           recommended: true,
           title: l10n.inappUnlockSetupTitle,
           body: l10n.inappUnlockSetupBody,
-          onTap: _busy
-              ? null
-              : () => setState(() {
-                  _choosing = false;
-                  _repairMode = false;
-                  _error = null;
-                }),
+          onTap: _busy || _warningOpen ? null : _beginActivation,
         ),
         const SizedBox(height: 16),
         ExpansionTile(
@@ -402,163 +420,190 @@ class _InAppUnlockScreenState extends State<InAppUnlockScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!codeSent)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _busy
-                  ? null
-                  : () => setState(() {
-                      _choosing = true;
-                      _recoverySession = null;
-                      _codeCtrl.clear();
-                      _error = null;
-                    }),
-              icon: const Icon(Icons.arrow_back, size: 16),
-              label: Text(l10n.actionBack),
-              style: TextButton.styleFrom(
-                foregroundColor: TibaneColors.textMuted,
-              ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!codeSent)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() {
+                              _choosing = true;
+                              _recoverySession = null;
+                              _codeCtrl.clear();
+                              _error = null;
+                            }),
+                      icon: const Icon(Icons.arrow_back, size: 16),
+                      label: Text(l10n.actionBack),
+                      style: TextButton.styleFrom(
+                        foregroundColor: TibaneColors.textMuted,
+                      ),
+                    ),
+                  ),
+                Text(
+                  repair
+                      ? l10n.inappUnlockFlowRepairHeader
+                      : l10n.inappUnlockSetupTitle,
+                  style: const TextStyle(
+                    color: TibaneColors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  repair
+                      ? (codeSent
+                            ? l10n.inappUnlockFlowRepairDescCode
+                            : l10n.inappUnlockFlowRepairDescSend)
+                      : (codeSent
+                            ? l10n.inappUnlockFlowSetupDescCode
+                            : l10n.inappUnlockFlowSetupDescSend),
+                  style: const TextStyle(
+                    color: TibaneColors.textMuted,
+                    height: 1.4,
+                  ),
+                ),
+                // Single-device wallet: the committee has one device-key slot, so
+                // "Set up this device" MOVES it here and retires any other phone set up
+                // for this wallet. Warn only on the set-up path (repair doesn't touch
+                // the device slot).
+                if (!repair) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        color: TibaneColors.amber,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          l10n.inappUnlockSingleDeviceWarning,
+                          style: const TextStyle(
+                            color: TibaneColors.amber,
+                            fontSize: 12.5,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (_notice != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _notice!,
+                    style: const TextStyle(color: TibaneColors.cyan),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                // Password is only needed to set up the device key; repair pushes the
+                // backup copy and needs no password.
+                if (!repair && !codeSent)
+                  TextField(
+                    key: const Key('recovery-password-input'),
+                    controller: _pwCtrl,
+                    obscureText: true,
+                    enabled: !_busy && !codeSent,
+                    autofocus: !codeSent,
+                    decoration: InputDecoration(
+                      labelText: l10n.inappUnlockPasswordLabel,
+                    ),
+                  ),
+                if (codeSent) ...[
+                  TextField(
+                    key: const Key('recovery-code-input'),
+                    controller: _codeCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    enabled: !_busy,
+                    autofocus: true,
+                    onTapOutside: (_) => FocusScope.of(context).unfocus(),
+                    onSubmitted: (_) =>
+                        repair ? _verifyAndRepair() : _verifyAndRecover(),
+                    decoration: InputDecoration(
+                      labelText: l10n.labelVerificationCode,
+                    ),
+                  ),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: TibaneColors.error),
+                  ),
+                  if (_errorDetail != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => showWalletErrorDetails(
+                          context,
+                          WalletError.from(_errorDetail!),
+                        ),
+                        child: Text(l10n.walletErrorDetails),
+                      ),
+                    ),
+                ],
+              ],
             ),
           ),
-        Text(
-          repair
-              ? l10n.inappUnlockFlowRepairHeader
-              : l10n.inappUnlockSetupTitle,
-          style: const TextStyle(
-            color: TibaneColors.text,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          repair
-              ? (codeSent
-                    ? l10n.inappUnlockFlowRepairDescCode
-                    : l10n.inappUnlockFlowRepairDescSend)
-              : (codeSent
-                    ? l10n.inappUnlockFlowSetupDescCode
-                    : l10n.inappUnlockFlowSetupDescSend),
-          style: const TextStyle(color: TibaneColors.textMuted, height: 1.4),
-        ),
-        // Single-device wallet: the committee has one device-key slot, so
-        // "Set up this device" MOVES it here and retires any other phone set up
-        // for this wallet. Warn only on the set-up path (repair doesn't touch
-        // the device slot).
-        if (!repair) ...[
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.info_outline,
-                color: TibaneColors.amber,
-                size: 16,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  l10n.inappUnlockSingleDeviceWarning,
-                  style: const TextStyle(
-                    color: TibaneColors.amber,
-                    fontSize: 12.5,
-                    height: 1.35,
+              if (codeSent)
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() {
+                          _recoverySession = null;
+                          _codeCtrl.clear();
+                          _error = null;
+                        }),
+                  child: Text(
+                    l10n.inappUnlockResendCode,
+                    style: const TextStyle(color: TibaneColors.orange),
                   ),
+                ),
+              FilledButton(
+                key: const Key('recovery-confirm'),
+                onPressed: _busy
+                    ? null
+                    : (codeSent
+                          ? (repair ? _verifyAndRepair : _verifyAndRecover)
+                          : _sendRecoveryCode),
+                style: FilledButton.styleFrom(
+                  backgroundColor: TibaneColors.orange,
+                  foregroundColor: TibaneColors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: Text(
+                  _busy
+                      ? (codeSent
+                            ? (repair
+                                  ? l10n.inappUnlockRepairing
+                                  : l10n.commonVerifying)
+                            : l10n.commonSending)
+                      : (codeSent
+                            ? (repair
+                                  ? l10n.inappUnlockRepairAction
+                                  : l10n.inappUnlockVerifySetup)
+                            : l10n.inappUnlockSendCode),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
-          ),
-        ],
-        if (_notice != null) ...[
-          const SizedBox(height: 12),
-          Text(_notice!, style: const TextStyle(color: TibaneColors.cyan)),
-        ],
-        const SizedBox(height: 24),
-        // Password is only needed to set up the device key; repair pushes the
-        // backup copy and needs no password.
-        if (!repair)
-          TextField(
-            controller: _pwCtrl,
-            obscureText: true,
-            enabled: !_busy && !codeSent,
-            autofocus: !codeSent,
-            decoration: InputDecoration(
-              labelText: l10n.inappUnlockPasswordLabel,
-            ),
-          ),
-        if (codeSent) ...[
-          if (!repair) const SizedBox(height: 12),
-          TextField(
-            controller: _codeCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            enabled: !_busy,
-            autofocus: true,
-            onSubmitted: (_) =>
-                repair ? _verifyAndRepair() : _verifyAndRecover(),
-            decoration: InputDecoration(labelText: l10n.labelVerificationCode),
-          ),
-        ],
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(_error!, style: const TextStyle(color: TibaneColors.error)),
-          if (_errorDetail != null)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton(
-                onPressed: () => showWalletErrorDetails(
-                  context,
-                  WalletError.from(_errorDetail!),
-                ),
-                child: Text(l10n.walletErrorDetails),
-              ),
-            ),
-        ],
-        // Minimum gap that survives the Spacer collapsing when the keyboard
-        // shrinks the viewport (KeyboardSafeForm switches to intrinsic height +
-        // scroll, giving the Spacer zero flex). Without it the button sits flush
-        // against the input/error above.
-        const SizedBox(height: 24),
-        const Spacer(),
-        if (codeSent)
-          TextButton(
-            onPressed: _busy
-                ? null
-                : () => setState(() {
-                    _recoverySession = null;
-                    _codeCtrl.clear();
-                    _error = null;
-                  }),
-            child: Text(
-              l10n.inappUnlockResendCode,
-              style: const TextStyle(color: TibaneColors.orange),
-            ),
-          ),
-        FilledButton(
-          onPressed: _busy
-              ? null
-              : (codeSent
-                    ? (repair ? _verifyAndRepair : _verifyAndRecover)
-                    : _sendRecoveryCode),
-          style: FilledButton.styleFrom(
-            backgroundColor: TibaneColors.orange,
-            foregroundColor: TibaneColors.black,
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-          child: Text(
-            _busy
-                ? (codeSent
-                      ? (repair
-                            ? l10n.inappUnlockRepairing
-                            : l10n.commonVerifying)
-                      : l10n.commonSending)
-                : (codeSent
-                      ? (repair
-                            ? l10n.inappUnlockRepairAction
-                            : l10n.inappUnlockVerifySetup)
-                      : l10n.inappUnlockSendCode),
-            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
         ),
       ],

@@ -368,10 +368,6 @@ class TibaneShellState extends State<TibaneShell> with WidgetsBindingObserver {
     final showSwap =
         (widget.forceSeeker ?? (wallet.currentAccount?.isMwa ?? false)) &&
         !isUk;
-    // Hide the bottom nav while the keyboard is up so it doesn't float above
-    // it — the bar lives on the shell Scaffold, outside the tab Navigators.
-    final keyboardOpen = context.keyboardInset > 0;
-
     return PopScope(
       // The tab Navigators sit below the root navigator, so a system back must
       // be routed to the active tab's Navigator first; only when it has nothing
@@ -425,46 +421,56 @@ class TibaneShellState extends State<TibaneShell> with WidgetsBindingObserver {
             ),
           ],
         ),
-        bottomNavigationBar: keyboardOpen ? null : _bottomNav(showSwap),
+        // Keep this slot mounted while the keyboard covers it. Removing it
+        // changes the form's height again on the last keyboard-dismiss frame.
+        bottomNavigationBar: _bottomNav(showSwap),
       ),
     );
   }
 
   Widget _bottomNav(bool showSwap) {
     final l10n = context.l10n;
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: TibaneColors.border)),
+    final media = MediaQuery.of(context);
+    return MediaQuery(
+      // BottomNavigationBar normally loses the home-indicator padding while
+      // typing. Retain it so its height is constant as the keyboard closes.
+      data: media.copyWith(
+        padding: media.padding.copyWith(bottom: media.viewPadding.bottom),
       ),
-      child: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _currentIndex,
-        onTap: _navigateTo,
-        items: [
-          BottomNavigationBarItem(
-            icon: Icon(
-              showSwap
-                  ? Icons.swap_horiz_outlined
-                  : Icons.account_balance_wallet_outlined,
+      child: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: TibaneColors.border)),
+        ),
+        child: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: _currentIndex,
+          onTap: _navigateTo,
+          items: [
+            BottomNavigationBarItem(
+              icon: Icon(
+                showSwap
+                    ? Icons.swap_horiz_outlined
+                    : Icons.account_balance_wallet_outlined,
+              ),
+              activeIcon: Icon(
+                showSwap ? Icons.swap_horiz : Icons.account_balance_wallet,
+              ),
+              label: showSwap
+                  ? l10n.bottomNavSwapLabel
+                  : l10n.bottomNavWalletLabel,
             ),
-            activeIcon: Icon(
-              showSwap ? Icons.swap_horiz : Icons.account_balance_wallet,
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.travel_explore_outlined),
+              activeIcon: const Icon(Icons.travel_explore),
+              label: l10n.bottomNavBrowseLabel,
             ),
-            label: showSwap
-                ? l10n.bottomNavSwapLabel
-                : l10n.bottomNavWalletLabel,
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.travel_explore_outlined),
-            activeIcon: const Icon(Icons.travel_explore),
-            label: l10n.bottomNavBrowseLabel,
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.settings_outlined),
-            activeIcon: const Icon(Icons.settings),
-            label: l10n.bottomNavSettingsLabel,
-          ),
-        ],
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.settings_outlined),
+              activeIcon: const Icon(Icons.settings),
+              label: l10n.bottomNavSettingsLabel,
+            ),
+          ],
+        ),
       ),
     );
   }

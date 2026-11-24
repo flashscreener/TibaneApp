@@ -20,6 +20,22 @@ class _Backend extends LibwalletBackend {
   final catalogRequests = <String?>[];
 
   @override
+  Future<List<TokenSearchResult>> searchCuratedTokens(
+    String query, {
+    String? network,
+    int limit = 20,
+  }) async {
+    if (network != 'solana.mainnet' || query != 'Chief') return [];
+    return [
+      TokenSearchResult(
+        mint: chiefPussyMint,
+        name: 'Tibanne Thecat',
+        symbol: 'ChiefPussy',
+      ),
+    ];
+  }
+
+  @override
   Future<Set<String>> verifiedCuratedTokenAddresses({String? network}) async {
     catalogRequests.add(network);
     return network == 'solana.mainnet' ? {wsolMint, chiefPussyMint} : {};
@@ -131,6 +147,20 @@ TokenHolding _chiefPussy(int raw, {double? valueUsd}) => TokenHolding(
 
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+  testWidgets('wallet search opens focused and finds a token by ticker', (
+    tester,
+  ) async {
+    await _pumpDashboard(tester);
+    final search = find.byKey(const Key('wallet-token-search'));
+    await tester.ensureVisible(search);
+    await tester.tap(search);
+    await tester.pumpAndSettle();
+    expect(tester.testTextInput.isVisible, isTrue);
+    await tester.enterText(find.byType(TextField), 'Chief');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.text('Tibanne Thecat'), findsOneWidget);
+  });
   testWidgets('wallet badges follow the active catalog and exact mint', (
     tester,
   ) async {

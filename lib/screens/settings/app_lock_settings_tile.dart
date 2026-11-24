@@ -5,6 +5,24 @@ import '../../services/app_lock_controller.dart';
 import '../../theme/tibane_theme.dart';
 import '../../widgets/tibane_card.dart';
 
+class AppLockSettingsScreen extends StatelessWidget {
+  const AppLockSettingsScreen({super.key, required this.controller});
+
+  final AppLockController controller;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: TibaneColors.black,
+    appBar: AppBar(title: Text(context.l10n.appLockSettingTitle)),
+    body: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: AppLockSettingsTile(controller: controller),
+      ),
+    ),
+  );
+}
+
 class AppLockSettingsTile extends StatefulWidget {
   const AppLockSettingsTile({super.key, required this.controller});
   final AppLockController controller;

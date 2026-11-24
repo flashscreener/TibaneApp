@@ -15,18 +15,34 @@ import '../../widgets/tibane_card.dart';
 import '../settings_screen.dart' show SettingsTile;
 import '../wallet/cloud_backup_screen.dart';
 import '../wallet/inapp_unlock_screen.dart';
+import '../wallet/mpc_key_operation_intro_screen.dart';
 import '../wallet/widgets/authorize_and_sign.dart' show collectManagementKeys;
 import '../../utils/log.dart';
 import '../../widgets/wallet_error_display.dart';
 import '../../utils/context_extensions.dart';
 
-/// Sub-screen reached from Settings → "Security & Privacy". Hosts the
-/// biometric toggle, password change, TSS share rotations, and cloud
-/// backup — all the surface area that affects key custody / auth.
-///
-/// The biometric / password / rotation options only make sense when the
-/// in-app wallet backend is active; they're suppressed when the user is
-/// running on MWA / Seed Vault since libwallet doesn't own the keys.
+bool _hasActiveMpcWallet(WalletService wallet) {
+  if (wallet.kind != WalletKind.inapp || !wallet.libwallet.hasWallet) {
+    return false;
+  }
+  final active = wallet.accountsService.walletsById[wallet.libwallet.walletId];
+  return active != null &&
+      active.protocol != 'mnemonic' &&
+      active.threshold > 0 &&
+      active.keys.length > 1;
+}
+
+void _showMpcOnlyNotice(BuildContext context) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(context.l10n.securityMpcWalletsOnly),
+      duration: const Duration(seconds: 3),
+    ),
+  );
+}
+
 class SecurityPrivacyScreen extends StatelessWidget {
   const SecurityPrivacyScreen({super.key});
 
@@ -39,10 +55,9 @@ class SecurityPrivacyScreen extends StatelessWidget {
     final hasInappWallet = inapp && wallet.libwallet.hasWallet;
     final accountWallet =
         wallet.accountsService.walletsById[wallet.libwallet.walletId];
-    final isMpc = accountWallet != null && accountWallet.keys.length > 1;
-    final hasStore = accountWallet?.keys.any((k) => k.isStoreKey) ?? false;
-    final hasRemote = accountWallet?.keys.any((k) => k.isRemoteKey) ?? false;
-    final hasPassword = accountWallet?.keys.any((k) => k.isPassword) ?? false;
+    final mpcAvailable = _hasActiveMpcWallet(wallet);
+    // Keep cloud restore reachable before a wallet has been loaded.
+    final canOpenMpc = mpcAvailable || !wallet.libwallet.hasWallet;
 
     return Scaffold(
       backgroundColor: TibaneColors.black,
@@ -53,7 +68,17 @@ class SecurityPrivacyScreen extends StatelessWidget {
           child: Column(
             children: [
               if (appLock != null) ...[
-                AppLockSettingsTile(controller: appLock),
+                SettingsTile(
+                  key: const Key('app-lock-settings-entry'),
+                  icon: Icons.lock_outline,
+                  title: l10n.appLockSettingTitle,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          AppLockSettingsScreen(controller: appLock),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 6),
               ],
               if (hasInappWallet &&
@@ -66,39 +91,27 @@ class SecurityPrivacyScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
               ],
-              if (hasInappWallet && isMpc) ...[
-                if (hasPassword)
-                  SettingsTile(
-                    icon: Icons.password_outlined,
-                    title: l10n.securityChangePasswordTitle,
-                    subtitle: l10n.securityChangePasswordSubtitle,
-                    onTap: () => _changePassword(context, wallet),
-                  ),
+              Opacity(
+                opacity: canOpenMpc ? 1 : 0.45,
+                child: SettingsTile(
+                  key: const Key('mpc-wallet-settings-entry'),
+                  icon: Icons.shield_outlined,
+                  title: l10n.securityMpcWalletTitle,
+                  onTap: () {
+                    if (!canOpenMpc) {
+                      _showMpcOnlyNotice(context);
+                      return;
+                    }
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MpcWalletSettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (!hasInappWallet) ...[
                 const SizedBox(height: 6),
-                if (hasStore)
-                  SettingsTile(
-                    icon: Icons.refresh,
-                    title: l10n.securityResetDeviceKeyTitle,
-                    subtitle: l10n.securityResetDeviceKeySubtitle,
-                    onTap: () => _rotateDeviceShare(context, wallet),
-                  ),
-                const SizedBox(height: 6),
-                if (hasStore && hasRemote)
-                  SettingsTile(
-                    icon: Icons.sms_outlined,
-                    title: l10n.securityReset2faTitle,
-                    subtitle: l10n.securityReset2faSubtitle,
-                    onTap: () => _rotateRemoteKey(context, wallet),
-                  ),
-                const SizedBox(height: 6),
-                if (hasStore)
-                  SettingsTile(
-                    icon: Icons.healing_outlined,
-                    title: l10n.securitySetUpSigningTitle,
-                    subtitle: l10n.securitySetUpSigningSubtitle,
-                    onTap: () => _recoverDeviceShare(context, wallet),
-                  ),
-              ] else if (!hasInappWallet) ...[
                 TibaneCard(
                   padding: const EdgeInsets.all(16),
                   child: Text(
@@ -107,16 +120,95 @@ class SecurityPrivacyScreen extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(height: 6),
-              // Cloud backup stays reachable even with no in-app wallet: it's
-              // the only restore path, and restore requires NO wallet loaded —
-              // so it can't live behind the has-in-app-wallet gate. The screen
-              // self-gates its actions (back-up needs an unlocked wallet,
-              // restore needs none).
-              SettingsTile(
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MpcWalletSettingsScreen extends StatelessWidget {
+  const MpcWalletSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final wallet = context.watch<WalletService>();
+    final isMpc = _hasActiveMpcWallet(wallet);
+    final active =
+        wallet.accountsService.walletsById[wallet.libwallet.walletId];
+    final hasStore = active?.keys.any((key) => key.isStoreKey) ?? false;
+    final hasRemote = active?.keys.any((key) => key.isRemoteKey) ?? false;
+    final hasPassword = active?.keys.any((key) => key.isPassword) ?? false;
+
+    Widget option({
+      required Key key,
+      required IconData icon,
+      required String title,
+      required String subtitle,
+      required VoidCallback onTap,
+      required bool enabled,
+    }) => Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Opacity(
+        opacity: enabled ? 1 : 0.45,
+        child: SettingsTile(
+          key: key,
+          icon: icon,
+          title: title,
+          subtitle: subtitle,
+          onTap: enabled ? onTap : () => _showMpcOnlyNotice(context),
+        ),
+      ),
+    );
+
+    return Scaffold(
+      backgroundColor: TibaneColors.black,
+      appBar: AppBar(title: Text(l10n.securityMpcWalletTitle)),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              option(
+                key: const Key('mpc-change-password'),
+                icon: Icons.password_outlined,
+                title: l10n.securityChangePasswordTitle,
+                subtitle: l10n.securityChangePasswordSubtitle,
+                enabled: isMpc && hasPassword,
+                onTap: () => _changePassword(context, wallet),
+              ),
+              option(
+                key: const Key('mpc-reset-device-key'),
+                icon: Icons.refresh,
+                title: l10n.securityResetDeviceKeyTitle,
+                subtitle: l10n.securityResetDeviceKeySubtitle,
+                enabled: isMpc && hasStore,
+                onTap: () => _rotateDeviceShare(context, wallet),
+              ),
+              option(
+                key: const Key('mpc-reset-2fa'),
+                icon: Icons.sms_outlined,
+                title: l10n.securityReset2faTitle,
+                subtitle: l10n.securityReset2faSubtitle,
+                enabled: isMpc && hasStore && hasRemote,
+                onTap: () => _rotateRemoteKey(context, wallet),
+              ),
+              option(
+                key: const Key('mpc-set-up-signing'),
+                icon: Icons.healing_outlined,
+                title: l10n.securitySetUpSigningTitle,
+                subtitle: l10n.securitySetUpSigningSubtitle,
+                enabled: isMpc && hasStore,
+                onTap: () => _recoverDeviceShare(context, wallet),
+              ),
+              option(
+                key: const Key('mpc-cloud-backup'),
                 icon: Icons.cloud_outlined,
                 title: l10n.securityCloudBackupTitle,
                 subtitle: l10n.securityCloudBackupSubtitle,
+                enabled: isMpc || !wallet.libwallet.hasWallet,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const CloudBackupScreen()),
                 ),
@@ -319,8 +411,13 @@ class SecurityPrivacyScreen extends StatelessWidget {
   ) async {
     final walletId = wallet.libwallet.walletId;
     if (walletId == null) return;
+    final confirmed = await showMpcActivationWarning(context);
+    if (!confirmed || !context.mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => InAppUnlockScreen(walletId: walletId)),
+      MaterialPageRoute(
+        builder: (_) =>
+            InAppUnlockScreen(walletId: walletId, startActivation: true),
+      ),
     );
   }
 
@@ -329,29 +426,9 @@ class SecurityPrivacyScreen extends StatelessWidget {
     WalletService wallet,
   ) async {
     final l10n = context.l10n;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TibaneColors.card,
-        title: Text(l10n.securityRotateDeviceDialogTitle),
-        content: Text(
-          l10n.securityRotateDeviceDialogBody,
-          style: const TextStyle(color: TibaneColors.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(l10n.actionCancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              l10n.securityRotateDeviceAction,
-              style: const TextStyle(color: TibaneColors.orange),
-            ),
-          ),
-        ],
-      ),
+    final confirmed = await showMpcKeyOperationIntro(
+      context,
+      MpcKeyOperation.resetDeviceKey,
     );
     if (confirmed != true) return;
     if (!context.mounted) return;

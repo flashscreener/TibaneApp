@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../theme/tibane_theme.dart';
 
+enum WalletActionIcon {
+  send('wallet-send'),
+  receive('wallet-receive'),
+  swap('wallet-swap');
+
+  const WalletActionIcon(this.asset);
+
+  final String asset;
+}
+
 /// Shared wallet action used by the dashboard and token detail screens.
 class WalletActionButton extends StatelessWidget {
-  final IconData icon;
+  final WalletActionIcon icon;
   final String label;
   final VoidCallback? onTap;
 
@@ -18,7 +29,9 @@ class WalletActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
-    final foreground = enabled ? TibaneColors.orange : TibaneColors.textDim;
+    final foreground = enabled
+        ? TibaneColors.orange.withValues(alpha: 0.9)
+        : TibaneColors.textDim;
 
     return Expanded(
       child: Material(
@@ -28,22 +41,29 @@ class WalletActionButton extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 11.2),
+            padding: const EdgeInsets.only(top: 8, bottom: 3),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: TibaneColors.border),
             ),
             child: Column(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: foreground.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
+                SizedBox(
+                  height: 36.25,
+                  child: Center(
+                    child: SvgPicture.asset(
+                      'assets/icons/${icon.asset}.svg',
+                      width: 33.75,
+                      height: 33.75,
+                      colorFilter: ColorFilter.mode(
+                        foreground,
+                        BlendMode.srcIn,
+                      ),
+                      excludeFromSemantics: true,
+                    ),
                   ),
-                  child: Icon(icon, color: foreground, size: 26.5),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 3),
                 Text(
                   label,
                   maxLines: 1,
@@ -53,10 +73,10 @@ class WalletActionButton extends StatelessWidget {
                         ? Color.lerp(
                             TibaneColors.textMuted,
                             TibaneColors.text,
-                            0.10,
+                            0.19,
                           )
                         : TibaneColors.textDim,
-                    fontSize: 18.04,
+                    fontSize: 16.24,
                     fontWeight: FontWeight.w500,
                   ),
                 ),

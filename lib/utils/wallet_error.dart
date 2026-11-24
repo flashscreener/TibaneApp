@@ -604,6 +604,13 @@ const List<(String, _FriendlyMessage)> _messageRules = [
     ),
   ),
   (
+    'unexpected end of response',
+    (
+      key: WalletErrorKey.serverUnavailable,
+      message: 'Server unavailable. Please try again later.',
+    ),
+  ),
+  (
     'timeoutexception',
     (
       key: WalletErrorKey.requestTimedOut,

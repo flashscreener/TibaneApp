@@ -67,6 +67,8 @@ class TokenSearch extends StatefulWidget {
   /// when results are visible. If null, the results list uses a
   /// fresh controller.
   final ScrollController? scrollController;
+  final bool autofocus;
+  final String? network;
 
   const TokenSearch({
     super.key,
@@ -76,6 +78,8 @@ class TokenSearch extends StatefulWidget {
     this.hintText,
     this.padding = const EdgeInsets.symmetric(horizontal: 20),
     this.scrollController,
+    this.autofocus = false,
+    this.network,
   });
 
   @override
@@ -138,7 +142,10 @@ class _TokenSearchState extends State<TokenSearch> {
     if (!mounted) return;
     setState(() => _searching = true);
     final wallet = context.read<WalletService>();
-    final results = await wallet.libwallet.searchCuratedTokens(query);
+    final results = await wallet.libwallet.searchCuratedTokens(
+      query,
+      network: widget.network,
+    );
     if (!mounted || mySeq != _searchSeq) return;
     setState(() {
       _results = results;
@@ -178,6 +185,7 @@ class _TokenSearchState extends State<TokenSearch> {
           padding: widget.padding,
           child: TextField(
             controller: _controller,
+            autofocus: widget.autofocus,
             onSubmitted: _onSubmit,
             decoration: InputDecoration(
               hintText: widget.hintText ?? l10n.tokenSearchHint,
