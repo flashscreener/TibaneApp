@@ -233,6 +233,13 @@ void main() {
   ) async {
     final harness = await _pump(tester);
     await _tap(tester, 'wallet-welcome-create');
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('wallet-create-mpc-option')),
+        matching: find.text('Recommended for advanced users.'),
+      ),
+      findsOneWidget,
+    );
     await _tap(tester, 'wallet-create-mpc-option');
     for (var step = 0; step < 4; step++) {
       await _tap(tester, 'mpc-intro-next');

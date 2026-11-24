@@ -160,6 +160,7 @@
   "walletSetupSeedTitle": "リカバリーフレーズを生成",
   "walletSetupSeedSubtitle": "秘密の12単語のフレーズで保護される通常のウォレットです。",
   "walletSetupMpcSubtitle": "鍵を分割し、メールまたはSMSでの復元とパスワードで保護します。",
+  "walletSetupMpcAdvancedNote": "上級ユーザーにおすすめです。",
   "walletSetupPrivateKeySubtitle": "秘密鍵を使ってSolanaまたはEthereumのアカウントを復元します。",
   "walletSetupComingSoon": "近日公開",
   "inappCreateTitle": "MPCウォレットを作成",

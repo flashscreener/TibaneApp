@@ -160,6 +160,7 @@
   "walletSetupSeedTitle": "Générer une phrase de récupération",
   "walletSetupSeedSubtitle": "Un portefeuille classique protégé par une phrase secrète de 12 mots.",
   "walletSetupMpcSubtitle": "Protection par clé partagée, récupération par e-mail ou SMS et mot de passe.",
+  "walletSetupMpcAdvancedNote": "Recommandé aux utilisateurs avancés.",
   "walletSetupPrivateKeySubtitle": "Restaurez un compte Solana ou Ethereum avec sa clé privée.",
   "walletSetupComingSoon": "Bientôt disponible",
   "inappCreateTitle": "Créer un portefeuille MPC",

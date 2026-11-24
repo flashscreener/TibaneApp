@@ -62,6 +62,7 @@ class WalletCreateOptionsScreen extends StatelessWidget {
               icon: Icons.verified_user_outlined,
               title: l10n.inappCreateTitle,
               subtitle: l10n.walletSetupMpcSubtitle,
+              note: l10n.walletSetupMpcAdvancedNote,
               centered: true,
               onTap: () => _createMpc(context),
             ),

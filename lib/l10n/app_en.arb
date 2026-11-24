@@ -512,6 +512,7 @@
   "walletSetupSeedTitle": "Generate seed phrase",
   "walletSetupSeedSubtitle": "A standard wallet backed up by a secret 12-word phrase.",
   "walletSetupMpcSubtitle": "Split-key protection with email or SMS recovery and a password.",
+  "walletSetupMpcAdvancedNote": "Recommended for advanced users.",
   "walletSetupPrivateKeySubtitle": "Restore a Solana or Ethereum account using its private key.",
   "walletSetupComingSoon": "Coming soon",
   "inappCreateTitle": "Create MPC wallet",

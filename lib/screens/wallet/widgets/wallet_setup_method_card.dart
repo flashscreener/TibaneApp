@@ -12,6 +12,7 @@ class WalletSetupMethodCard extends StatelessWidget {
     this.onTap,
     this.centered = false,
     this.unavailableLabel,
+    this.note,
   });
 
   final IconData icon;
@@ -20,6 +21,7 @@ class WalletSetupMethodCard extends StatelessWidget {
   final VoidCallback? onTap;
   final bool centered;
   final String? unavailableLabel;
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +63,20 @@ class WalletSetupMethodCard extends StatelessWidget {
             letterSpacing: 0,
           ),
         ),
+        if (note != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            note!,
+            textAlign: centered ? TextAlign.center : TextAlign.start,
+            style: const TextStyle(
+              color: TibaneColors.orange,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.3,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
         if (unavailableLabel != null) ...[
           const SizedBox(height: 8),
           Text(
