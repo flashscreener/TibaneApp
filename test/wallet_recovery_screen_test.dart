@@ -47,15 +47,23 @@ class _Transport implements Transport {
     Map<String, dynamic>? params,
   ]) async {
     if (path == 'Wallet/wallet') return wallet.toJson();
-    if (path.startsWith('Wallet/Key/') && path.endsWith(':verify')) {
+    if (path == 'Wallet/Key/password:verify') {
       passwordChecks++;
-      final key = params!['Key'] as Map;
+      final key = params!['Key'] as Map<String, dynamic>;
       return {
-        'Id': path.substring('Wallet/Key/'.length, path.length - 7),
-        'Valid': key['Key'] == 'fixture-password',
+        'Id': 'password',
+        'Valid': key['Type'] == 'Password' && key['Key'] == 'fixture-password',
         'Checked': 'unsealed',
         'Kdf': 'argon2id',
         'KdfUpgrade': false,
+      };
+    }
+    if (path == 'StoreKey:derivePassword') {
+      passwordChecks++;
+      return {
+        'Public_Key': params!['Password'] == 'fixture-password'
+            ? 'password-public'
+            : 'wrong-public',
       };
     }
     if (path == 'RemoteKey:reshare') {
@@ -73,11 +81,14 @@ class _Client implements LibwalletClient {
   _Client(Transport transport)
     : wallets = WalletApi(transport),
       walletKeys = WalletKeyApi(transport),
+      storeKeys = StoreKeyApi(transport),
       remoteKeys = RemoteKeyApi(transport);
   @override
   final WalletApi wallets;
   @override
   final WalletKeyApi walletKeys;
+  @override
+  final StoreKeyApi storeKeys;
   @override
   final RemoteKeyApi remoteKeys;
   @override
@@ -91,6 +102,7 @@ class _Backend extends LibwalletBackend {
   bool wrongRestorePassword = false;
   bool recoveryFailed = false;
   bool failRecovery = false;
+  bool localShareReady = false;
   int recoveries = 0;
   int repairs = 0;
   final recoverySessions = <String>[];
@@ -112,6 +124,12 @@ class _Backend extends LibwalletBackend {
     wrongRestorePassword = password != 'fixture-password';
     return !wrongRestorePassword;
   }
+
+  @override
+  Future<bool> verifyRestoredWalletReady(
+    String walletId, {
+    required String password,
+  }) async => transport.passwordOnly || localShareReady;
 
   @override
   Future<bool> recoverDeviceShareVia2fa({
@@ -276,6 +294,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text(l10n.walletsAccountsExportWalletTitle), findsNothing);
+      expect(find.text(l10n.walletsAccountsManageWalletsTitle), findsOneWidget);
     });
   }
 
@@ -301,6 +320,25 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('same-device restore reuses verified local shares without 2FA', (
+    tester,
+  ) async {
+    final backend = _Backend(_Transport()..passwordOnly = false)
+      ..localShareReady = true;
+    final l10n = await _pump(tester, backend, restore: true);
+    await tester.enterText(
+      find.byType(TextField).first,
+      'public backup fixture',
+    );
+    await tester.enterText(find.byType(TextField).last, 'fixture-password');
+    await _tap(tester, l10n.backupRestoreButton);
+    expect(find.byType(InAppBackupRestoreScreen), findsNothing);
+    expect(find.byType(InAppUnlockScreen), findsNothing);
+    expect(backend.transport.codesSent, 0);
+    expect(backend.recoveries, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('StoreKey backup still requires device setup', (tester) async {
     final backend = _Backend(_Transport()..passwordOnly = false);
@@ -348,6 +386,8 @@ void main() {
       await tester.enterText(find.byType(TextField).last, '654321');
       await _tap(tester, l10n.inappUnlockVerifySetup);
       expect(backend.recoverySessions, ['session-1', 'session-2']);
+      expect(find.text(l10n.recoveryUpdatedBackupBody), findsOneWidget);
+      await _tap(tester, l10n.backupRestoreSetupLater);
       expect(find.byType(InAppUnlockScreen), findsNothing);
       expect(tester.takeException(), isNull);
     },

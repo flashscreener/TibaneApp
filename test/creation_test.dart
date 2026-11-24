@@ -7,53 +7,61 @@ import 'package:tibaneapp/services/wallet/creation.dart';
 void main() {
   group('creationModeFor', () {
     test('biometric device → biometric committee', () {
-      expect(
-        creationModeFor(hasBiometric: true),
-        CreationMode.biometric,
-      );
+      expect(creationModeFor(hasBiometric: true), CreationMode.biometric);
     });
 
-    test('no biometric → D5 password-only committee', () {
-      expect(
-        creationModeFor(hasBiometric: false),
-        CreationMode.passwordOnly,
-      );
+    test('no biometric retains an independent device key', () {
+      expect(creationModeFor(hasBiometric: false), CreationMode.deviceStorage);
     });
 
-    test('forceUnsafe overrides a biometric device → password-only', () {
+    test('debug storage override never duplicates the password share', () {
       expect(
         creationModeFor(hasBiometric: true, forceUnsafe: true),
-        CreationMode.passwordOnly,
+        CreationMode.deviceStorage,
       );
     });
   });
 
   group('creationKeyTypes', () {
     test('biometric → [StoreKey, RemoteKey, Password]', () {
-      expect(
-        creationKeyTypes(CreationMode.biometric),
-        ['StoreKey', 'RemoteKey', 'Password'],
-      );
+      expect(creationKeyTypes(CreationMode.biometric), [
+        'StoreKey',
+        'RemoteKey',
+        'Password',
+      ]);
     });
 
-    test('D5 → [Password, Password, RemoteKey] (two password shares)', () {
-      expect(
-        creationKeyTypes(CreationMode.passwordOnly),
-        ['Password', 'Password', 'RemoteKey'],
-      );
+    test('device storage preserves [StoreKey, RemoteKey, Password]', () {
+      expect(creationKeyTypes(CreationMode.deviceStorage), [
+        'StoreKey',
+        'RemoteKey',
+        'Password',
+      ]);
     });
 
     test('both committees have ≥3 keys (multiCreate floor)', () {
       for (final mode in CreationMode.values) {
-        expect(creationKeyTypes(mode).length, greaterThanOrEqualTo(3));
+        expect(creationKeyTypes(mode), hasLength(3));
+        expect(
+          creationKeyTypes(mode).where((k) => k == 'Password'),
+          hasLength(1),
+        );
+        expect(
+          creationKeyTypes(mode).where((k) => k == 'StoreKey'),
+          hasLength(1),
+        );
+        expect(
+          creationKeyTypes(mode).where((k) => k == 'RemoteKey'),
+          hasLength(1),
+        );
       }
     });
   });
 
   group('modeHasStoreKey', () {
-    test('biometric wallet has a StoreKey; D5 does not', () {
+    test('both modes have a StoreKey', () {
       expect(modeHasStoreKey(CreationMode.biometric), isTrue);
-      expect(modeHasStoreKey(CreationMode.passwordOnly), isFalse);
+      expect(modeHasStoreKey(CreationMode.deviceStorage), isTrue);
     });
   });
 

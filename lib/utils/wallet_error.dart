@@ -28,6 +28,7 @@ enum WalletErrorKey {
   swapQuoteExpired,
   invalidValue,
   signingUnavailable,
+  mpcDeviceStorageUnavailable,
   importedSolanaPromotionUnavailable,
   mnemonicMpcUnavailable,
   promotionIdentityChanged,
@@ -141,6 +142,8 @@ class WalletError {
         return l10n.walletErrorInvalidValue;
       case WalletErrorKey.signingUnavailable:
         return l10n.walletErrorSigningUnavailable;
+      case WalletErrorKey.mpcDeviceStorageUnavailable:
+        return l10n.mpcDeviceStorageUnavailable;
       case WalletErrorKey.importedSolanaPromotionUnavailable:
         return l10n.privateKeySolanaPromotionUnavailable;
       case WalletErrorKey.mnemonicMpcUnavailable:
@@ -391,6 +394,14 @@ const List<(String, _FriendlyMessage)> _messageRules = [
       key: WalletErrorKey.partialBroadcast,
       message:
           'Some transactions were submitted. Check Activity before retrying.',
+    ),
+  ),
+  (
+    'mpc_device_storage_unavailable',
+    (
+      key: WalletErrorKey.mpcDeviceStorageUnavailable,
+      message:
+          'Secure device storage is unavailable. Check device security settings.',
     ),
   ),
   (

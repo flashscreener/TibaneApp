@@ -129,19 +129,18 @@ class _InAppBackupRestoreScreenState extends State<InAppBackupRestoreScreen> {
         }
         if (!mounted) return;
         if (restoredId != null &&
-            await wallet.libwallet.walletCanSignWithoutDeviceShare(
+            await wallet.libwallet.verifyRestoredWalletReady(
               restoredId,
+              password: pw,
             )) {
           if (!mounted) return;
           Navigator.of(context).pop(true);
           return;
         }
         if (!mounted) return;
-        // StoreKey-based backups do not contain the device's signing key.
-        // Unlike password-only wallets, they cannot sign yet;
-        // the restore only becomes usable after "Set up this device" mints a
-        // local share via 2FA. Steer the user straight there and explain why,
-        // rather than dropping them on a wallet that silently can't send.
+        // The standard backup excludes the device secret. If no valid local
+        // copy survived, activate this device with Password + RemoteKey before
+        // offering signing. Same-device restores can reuse a verified copy.
         final setupNow = await _promptFinishSetup();
         if (!mounted) return;
         if (setupNow && restoredId != null) {

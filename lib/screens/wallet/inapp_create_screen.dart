@@ -71,7 +71,7 @@ class _InAppCreateScreenState extends State<InAppCreateScreen> {
       forceUnsafe: kForceUnsafeCreation,
     );
     if (!mounted) return;
-    setState(() => _lowerSecurity = mode == CreationMode.passwordOnly);
+    setState(() => _lowerSecurity = mode == CreationMode.deviceStorage);
   }
 
   @override

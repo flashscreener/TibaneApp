@@ -1,4 +1,4 @@
-/// Wallet-creation decisions — pure helpers (Atonline-parity Phase 2, §5 / D5).
+/// Wallet-creation decisions and device-share custody.
 ///
 /// Kept out of the backend so they're unit-testable without a device, a
 /// libwallet client, or a biometric prompt (the existing pure-decision
@@ -6,8 +6,8 @@
 /// at-rest writes are device-verified.
 library;
 
-/// Debug override: force the D5 (password-only) creation path even on a
-/// biometric device, so the fallback can be exercised on the Seeker.
+/// Debug override for exercising OS-keystore custody without biometrics.
+/// The standard three independent shares are retained in either mode.
 ///   flutter run --dart-define=FORCE_UNSAFE=true
 const bool kForceUnsafeCreation = bool.fromEnvironment('FORCE_UNSAFE');
 
@@ -18,12 +18,9 @@ enum CreationMode {
   /// password blob). No no-auth keystore copy.
   biometric,
 
-  /// No biometric (D5 fallback): committee `[Password, Password, RemoteKey]`,
-  /// threshold 1 — one typed password unlocks two shares (T+1) to sign, the
-  /// RemoteKey stays for 2FA recovery. No StoreKey, nothing custodied at rest.
-  /// Verified against the libwallet Go source: `multiCreate` needs ≥3 keys and
-  /// imposes no uniqueness on key type, so two Password shares are accepted.
-  passwordOnly,
+  /// No biometric: retain an independent device key in the OS keystore.
+  /// Never replace it with a second share derived from the same password.
+  deviceStorage,
 }
 
 /// Pick the creation mode. Biometric custody is used (and enforced) whenever
@@ -31,22 +28,19 @@ enum CreationMode {
 CreationMode creationModeFor({
   required bool hasBiometric,
   bool forceUnsafe = false,
-}) =>
-    (hasBiometric && !forceUnsafe)
-        ? CreationMode.biometric
-        : CreationMode.passwordOnly;
+}) => (hasBiometric && !forceUnsafe)
+    ? CreationMode.biometric
+    : CreationMode.deviceStorage;
 
 /// The committee key types, in order, for a creation mode. Used to build the
 /// `KeyDescription` list; unit-tested without libwallet.
 List<String> creationKeyTypes(CreationMode mode) => switch (mode) {
-      CreationMode.biometric => const ['StoreKey', 'RemoteKey', 'Password'],
-      CreationMode.passwordOnly => const ['Password', 'Password', 'RemoteKey'],
-    };
+  CreationMode.biometric => const ['StoreKey', 'RemoteKey', 'Password'],
+  CreationMode.deviceStorage => const ['StoreKey', 'RemoteKey', 'Password'],
+};
 
-/// Whether a created wallet of this mode carries a StoreKey share. A wallet
-/// WITHOUT one (D5) is signed the same lockless way — the sign sheet collects
-/// its two Password shares per transaction.
-bool modeHasStoreKey(CreationMode mode) => mode == CreationMode.biometric;
+/// Both creation modes preserve the standard device/password/remote layout.
+bool modeHasStoreKey(CreationMode mode) => true;
 
 /// How to persist a **freshly-minted StoreKey** (creation, rotate, 2FA
 /// recovery, device-import) so custody stays consistent — the Atonline model:
@@ -62,5 +56,4 @@ bool modeHasStoreKey(CreationMode mode) => mode == CreationMode.biometric;
 /// a no-auth copy are mutually exclusive, so nothing ever bypasses the gate.
 ({bool enrollBiometric, bool osKeystoreCopy}) freshStoreKeyPersistPlan({
   required bool hasBiometric,
-}) =>
-    (enrollBiometric: hasBiometric, osKeystoreCopy: !hasBiometric);
+}) => (enrollBiometric: hasBiometric, osKeystoreCopy: !hasBiometric);

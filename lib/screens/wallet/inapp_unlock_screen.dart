@@ -11,6 +11,7 @@ import '../../widgets/tibane_card.dart';
 import '../../utils/log.dart';
 import '../../utils/wallet_error.dart';
 import '../../widgets/wallet_error_display.dart';
+import 'inapp_export_screen.dart';
 
 /// 2FA device-share recovery screen (Atonline-parity §4.8). Signing is lockless
 /// (per-transaction via the sign sheet), so there is no "unlock" — this screen
@@ -153,6 +154,37 @@ class _InAppUnlockScreenState extends State<InAppUnlockScreen> {
     if (ok) {
       await wallet.useLibwallet();
       if (!mounted) return;
+      final saveNow = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          scrollable: true,
+          title: Text(l10n.postCreateBackupTitle),
+          content: Text(l10n.recoveryUpdatedBackupBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(
+                l10n.backupRestoreSetupLater,
+                style: const TextStyle(color: TibaneColors.textMuted),
+              ),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l10n.postCreateBackupButton),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (saveNow == true) {
+        await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => const InAppExportScreen(showNext: true),
+          ),
+        );
+        if (!mounted) return;
+      }
       Navigator.of(context).pop(true);
     } else {
       logError(

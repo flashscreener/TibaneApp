@@ -15,6 +15,7 @@ import 'backup_bundle.dart';
 import 'auto_backup_store.dart';
 import 'creation.dart';
 import 'migration.dart';
+import 'mpc_recovery_checks.dart';
 import 'password_rotation.dart';
 import 'secure_keystore.dart';
 import 'normal_wallet_biometrics.dart';
@@ -776,35 +777,29 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
     try {
       final client = await ensureClient();
 
-      // Build the committee (Atonline-parity §5.2 / D5). Biometric: a StoreKey
-      // enrolled behind biometric BEFORE keygen — a cancelled/failed enrollment
-      // aborts creation here, before any wallet exists. D5 (no biometric): two
-      // Password shares + RemoteKey (≥3 keys for multiCreate), no StoreKey.
+      // Keep the standard device/password/remote committee on every device.
+      // Missing biometrics changes custody, never the number of password shares.
       trace('checking_device_security');
       final mode = creationModeFor(
         hasBiometric: await Biometric.hasBiometric(),
         forceUnsafe: kForceUnsafeCreation,
       );
-      StoreKeyPair? storePair;
-      final List<KeyDescription> keys;
+      if (mode == CreationMode.deviceStorage &&
+          !await _keystore.isSecureStorageUsable()) {
+        throw StateError('mpc_device_storage_unavailable');
+      }
+      final storePair = await client.storeKeys.create();
       if (mode == CreationMode.biometric) {
-        storePair = await client.storeKeys.create();
         await Biometric.setSecuredKey(
           storePair.privateKey,
           storePair.publicKey,
         );
-        keys = [
-          KeyDescription.storeKey(storePair.publicKey),
-          KeyDescription.remoteKey(remoteKey),
-          KeyDescription.password(password),
-        ];
-      } else {
-        keys = [
-          KeyDescription.password(password),
-          KeyDescription.password(password),
-          KeyDescription.remoteKey(remoteKey),
-        ];
       }
+      final keys = [
+        KeyDescription.storeKey(storePair.publicKey),
+        KeyDescription.remoteKey(remoteKey),
+        KeyDescription.password(password),
+      ];
 
       trace('generating_${curves.length > 1 ? 'both_curves' : curves.single}');
       final Map<String, Wallet> createdByCurve;
@@ -857,6 +852,20 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
       Wallet? activeWallet;
       for (final entry in createdByCurve.entries) {
         final w = entry.value;
+        // multiCreate yields separate wallets: each needs a local custody
+        // record, not just the curve made active at the end.
+        await _keystore.writeDeviceShare(
+          walletId: w.id,
+          value: storePair.privateKey,
+          password: password,
+          osKeystoreCopy: mode == CreationMode.deviceStorage,
+        );
+        await verifyMpcLocalShares(
+          client: client,
+          wallet: w,
+          devicePrivate: storePair.privateKey,
+          password: password,
+        );
         final types = defaultAccountTypesForCurve(entry.key);
         final createdAccounts = <Account>[];
         for (final type in types) {
@@ -889,18 +898,16 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
       _accountId = account.id;
       _publicKey = account.address;
       _walletName = name;
-      _storeKeyPriv = storePair?.privateKey; // null for the D5 committee
-      _storeKeyId = walletKeyIds['StoreKey']; // null for the D5 committee
+      _storeKeyPriv = storePair.privateKey;
+      _storeKeyId = walletKeyIds['StoreKey'];
       _remoteKeyId = walletKeyIds['RemoteKey'];
       _passwordKeyId = walletKeyIds['Password'];
       _password = password;
 
-      // Biometric wallets write the StoreKey blob-only (no no-auth copy);
-      // D5 wallets have no StoreKey priv, so _persist skips the share write.
       trace('saving_wallet');
       await _persist(
-        storeKeyPublic: storePair?.publicKey,
-        osKeystoreCopy: false,
+        storeKeyPublic: storePair.publicKey,
+        osKeystoreCopy: mode == CreationMode.deviceStorage,
       );
       trace('selecting_network');
       await ensureSolanaDefault(force: true);
@@ -1838,8 +1845,8 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
       final client = await ensureClient();
       final wallet = await client.wallets.get(targetId);
       await _verifyWalletPassword(client, wallet: wallet, password: password);
-      // The no-biometric creation path has two Password shares and no
-      // StoreKey. It can already sign; never rotate its committee for setup.
+      // Preserve legacy password-only wallets; setup must not silently
+      // convert an existing committee into the standard device-key layout.
       if (canSignWithoutDeviceShare(wallet)) {
         unawaited(upgradePasswordKdfInBackground(password));
         return true;
@@ -1861,13 +1868,9 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
         notifyListeners();
         return false;
       }
-      if (validation.remoteKey != _remoteKeyId) {
-        _remoteKeyId = validation.remoteKey;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_prefsRemoteKeyId, _remoteKeyId!);
-      }
       // Mint a fresh device share locally and run the Wallet:reshare
       // ceremony using the fresh RemoteKey session id.
+      if (_walletId != targetId) throw StateError('wallet_operation_changed');
       debugPrint('[recovery] validated; running device-share reshare…');
       final priv = await _resharedDeviceShare(
         client: client,
@@ -1875,6 +1878,7 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
         password: password,
         freshRemoteKeyResource: validation.remoteKey,
       );
+      if (_walletId != targetId) throw StateError('wallet_operation_changed');
       _storeKeyPriv = priv;
       _password = password;
       notifyListeners();
@@ -2608,6 +2612,35 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
   Future<bool> walletCanSignWithoutDeviceShare(String walletId) async {
     final client = await ensureClient();
     return canSignWithoutDeviceShare(await client.wallets.get(walletId));
+  }
+
+  /// Verify the actual local key, not only its record in a restored backup.
+  Future<bool> verifyRestoredWalletReady(
+    String walletId, {
+    required String password,
+  }) async {
+    final client = await ensureClient();
+    final wallet = await client.wallets.get(walletId);
+    await _verifyWalletPassword(client, wallet: wallet, password: password);
+    if (canSignWithoutDeviceShare(wallet)) return true; // Legacy D5 / seed.
+    final device = wallet.keys.where((key) => key.isStoreKey).firstOrNull;
+    if (device == null) return false;
+    final secret = await _keystore.readDeviceShare(
+      walletId: walletId,
+      password: password,
+    );
+    if (secret == null) return false;
+    try {
+      await verifyMpcLocalShares(
+        client: client,
+        wallet: wallet,
+        devicePrivate: secret,
+        password: password,
+      );
+      return true;
+    } on StateError {
+      return false;
+    }
   }
 
   /// Pick the wallet to make active after [removedId] is removed: the first
@@ -4296,7 +4329,9 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
     final reshareOld = buildReshareOldKeys(
       wallet: wallet,
       password: password,
-      storeKeyPriv: _storeKeyPriv,
+      // Recovery is authorized by exactly Password + RemoteKey. A cached
+      // device key may belong to a different generation and is not a third party.
+      storeKeyPriv: null,
       freshRemoteKeyResource: freshRemoteKeyResource,
     );
     WalletKey? oldRemoteKey;
@@ -4321,27 +4356,58 @@ class LibwalletBackend extends ChangeNotifier implements WalletBackend {
       ),
     );
     debugPrint('[recovery] Wallet:reshare ceremony complete');
+    verifyMpcIdentity(wallet, afterReshare);
     final freshKeyIds = _extractKeyIdsByType(afterReshare);
     final freshStoreKeyId = freshKeyIds['StoreKey'];
-    if (freshStoreKeyId == null) {
-      throw StateError('Post-reshare wallet is missing its StoreKey');
+    if (freshStoreKeyId == null ||
+        freshKeyIds['Password'] == null ||
+        freshKeyIds['RemoteKey'] == null) {
+      throw StateError('Recovered wallet is missing signing shares');
     }
 
-    // Persist new metadata + private key. Reshare didn't touch the
-    // RemoteKey or Password slot, so their IDs stay the same (we
-    // only refresh StoreKey-related state).
-    _storeKeyId = freshStoreKeyId;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsStorePub, newStorePair.publicKey);
-    await prefs.setString(_prefsStoreKeyId, freshStoreKeyId);
     final persisted = await _persistFreshStoreKey(
       priv: newStorePair.privateKey,
       pub: newStorePair.publicKey,
       password: password,
-      oldPub: oldStoreKey?.key,
+      walletId: wallet.id,
     );
     if (!persisted) {
       throw StateError('Could not persist the recovered device share');
+    }
+    final savedPrivate = await _keystore.readDeviceShare(
+      walletId: wallet.id,
+      password: password,
+    );
+    if (savedPrivate == null) {
+      throw StateError('Recovered device share is unavailable');
+    }
+    await verifyMpcLocalShares(
+      client: client,
+      wallet: afterReshare,
+      devicePrivate: savedPrivate,
+      password: password,
+    );
+    if (_walletId != wallet.id) throw StateError('wallet_operation_changed');
+    // Reshare replaces every share; the old Password/RemoteKey IDs are stale.
+    _storeKeyId = freshStoreKeyId;
+    _passwordKeyId = freshKeyIds['Password'];
+    _remoteKeyId = freshKeyIds['RemoteKey'];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsStorePub, newStorePair.publicKey);
+    await _persistActivePointer();
+    // A multi-curve wallet may still use the old biometric entry on its
+    // other curve. Remove it only after its last wallet has moved away.
+    final oldPublic = oldStoreKey?.key;
+    if (oldPublic != null && oldPublic != newStorePair.publicKey) {
+      try {
+        final wallets = await client.wallets.list();
+        final stillUsed = wallets.any(
+          (w) => w.keys.any((k) => k.isStoreKey && k.key == oldPublic),
+        );
+        if (!stillUsed) await Biometric.deleteSecuredKey(oldPublic);
+      } catch (error) {
+        debugPrint('[recovery] old biometric cleanup: ${error.runtimeType}');
+      }
     }
     return newStorePair.privateKey;
   }
